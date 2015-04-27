@@ -4821,23 +4821,23 @@ gint main(int argc, char *argv[])
 			JANUS_LOG(LOG_FATAL, "Can't connect to RabbitMQ server: error opening channel... %s, %s\n", amqp_error_string2(result.library_error), amqp_method_name(result.reply.id));
 			exit(1);	/* FIXME Should we really give up? */
 		}
-		JANUS_LOG(LOG_VERB, "Declaring incoming queue... (%s)\n", to_janus);
 		to_janus_queue = amqp_cstring_bytes(to_janus);
+		from_janus_queue = amqp_cstring_bytes(from_janus);
+		/*JANUS_LOG(LOG_VERB, "Declaring incoming queue... (%s)\n", to_janus);
 		amqp_queue_declare(rmq_conn, rmq_channel, to_janus_queue, 0, 0, 0, 0, amqp_empty_table);
 		result = amqp_get_rpc_reply(rmq_conn);
 		if(result.reply_type != AMQP_RESPONSE_NORMAL) {
 			JANUS_LOG(LOG_FATAL, "Can't connect to RabbitMQ server: error declaring queue... %s, %s\n", amqp_error_string2(result.library_error), amqp_method_name(result.reply.id));
-			exit(1);	/* FIXME Should we really give up? */
+			exit(1);	//FIXME Should we really give up?
 		}
 		JANUS_LOG(LOG_VERB, "Declaring outgoing queue... (%s)\n", from_janus);
-		from_janus_queue = amqp_cstring_bytes(from_janus);
 		amqp_queue_declare(rmq_conn, rmq_channel, from_janus_queue, 0, 0, 0, 0, amqp_empty_table);
 		result = amqp_get_rpc_reply(rmq_conn);
 		if(result.reply_type != AMQP_RESPONSE_NORMAL) {
 			JANUS_LOG(LOG_FATAL, "Can't connect to RabbitMQ server: error declaring queue... %s, %s\n", amqp_error_string2(result.library_error), amqp_method_name(result.reply.id));
-			exit(1);	/* FIXME Should we really give up? */
-		}
-		amqp_basic_consume(rmq_conn, rmq_channel, to_janus_queue, amqp_empty_bytes, 0, 1, 0, amqp_empty_table);
+			exit(1);	//FIXME Should we really give up?
+		}*/
+		amqp_basic_consume(rmq_conn, rmq_channel, to_janus_queue, amqp_empty_bytes, 0, 0, 0, amqp_empty_table);
 		result = amqp_get_rpc_reply(rmq_conn);
 		if(result.reply_type != AMQP_RESPONSE_NORMAL) {
 			JANUS_LOG(LOG_FATAL, "Can't connect to RabbitMQ server: error consuming... %s, %s\n", amqp_error_string2(result.library_error), amqp_method_name(result.reply.id));
