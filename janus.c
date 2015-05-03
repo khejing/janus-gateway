@@ -3240,12 +3240,12 @@ void *janus_rmq_out_thread(void *data) {
 				JANUS_LOG(LOG_HUGE, "%s\n", response->payload);
 				amqp_basic_properties_t props;
 				props._flags = 0;
-				props._flags |= AMQP_BASIC_REPLY_TO_FLAG;
+				/*props._flags |= AMQP_BASIC_REPLY_TO_FLAG;
 				props.reply_to = amqp_cstring_bytes("Janus");
 				if(response->correlation_id) {
 					props._flags |= AMQP_BASIC_CORRELATION_ID_FLAG;
 					props.correlation_id = amqp_cstring_bytes(response->correlation_id);
-				}
+				}*/
 				props._flags |= AMQP_BASIC_CONTENT_TYPE_FLAG;
 				props.content_type = amqp_cstring_bytes("application/json");
 				amqp_bytes_t message = amqp_cstring_bytes(response->payload);
@@ -3279,8 +3279,8 @@ void *janus_rmq_out_thread(void *data) {
 						JANUS_LOG(LOG_HUGE, "%s\n", event->payload);
 						amqp_basic_properties_t props;
 						props._flags = 0;
-						props._flags |= AMQP_BASIC_REPLY_TO_FLAG;
-						props.reply_to = amqp_cstring_bytes("Janus");
+						/*props._flags |= AMQP_BASIC_REPLY_TO_FLAG;
+						props.reply_to = amqp_cstring_bytes("Janus");*/
 						props._flags |= AMQP_BASIC_CONTENT_TYPE_FLAG;
 						props.content_type = amqp_cstring_bytes("application/json");
 						amqp_bytes_t message = amqp_cstring_bytes(event->payload);
