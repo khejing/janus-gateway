@@ -3151,17 +3151,17 @@ void *janus_rmq_in_thread(void *data) {
 			break;
 		}
 		/* We expect method first */
-		JANUS_LOG(LOG_VERB, "Frame type %d, channel %d\n", frame.frame_type, frame.channel);
+		JANUS_LOG(LOG_DBG, "Frame type %d, channel %d\n", frame.frame_type, frame.channel);
 		if(frame.frame_type != AMQP_FRAME_METHOD)
 			continue;
-		JANUS_LOG(LOG_VERB, "Method %s\n", amqp_method_name(frame.payload.method.id));
+		JANUS_LOG(LOG_DBG, "Method %s\n", amqp_method_name(frame.payload.method.id));
 		if(frame.payload.method.id == AMQP_BASIC_DELIVER_METHOD) {
 			amqp_basic_deliver_t *d = (amqp_basic_deliver_t *)frame.payload.method.decoded;
 			JANUS_LOG(LOG_VERB, "Delivery #%u, %.*s\n", (unsigned) d->delivery_tag, (int) d->routing_key.len, (char *) d->routing_key.bytes);
 		}
 		/* Then the header */
 		amqp_simple_wait_frame(rmq_conn, &frame);
-		JANUS_LOG(LOG_VERB, "Frame type %d, channel %d\n", frame.frame_type, frame.channel);
+		JANUS_LOG(LOG_DBG, "Frame type %d, channel %d\n", frame.frame_type, frame.channel);
 		if(frame.frame_type != AMQP_FRAME_HEADER)
 			continue;
 		amqp_basic_properties_t *p = (amqp_basic_properties_t *)frame.payload.properties.decoded;
@@ -3182,15 +3182,15 @@ void *janus_rmq_in_thread(void *data) {
 		char *payload = (char *)calloc(total+1, sizeof(char)), *index = payload;
 		while(received < total) {
 			amqp_simple_wait_frame(rmq_conn, &frame);
-			JANUS_LOG(LOG_VERB, "Frame type %d, channel %d\n", frame.frame_type, frame.channel);
+			JANUS_LOG(LOG_DBG, "Frame type %d, channel %d\n", frame.frame_type, frame.channel);
 			if(frame.frame_type != AMQP_FRAME_BODY)
 				break;
 			sprintf(index, "%.*s", (int) frame.payload.body_fragment.len, (char *) frame.payload.body_fragment.bytes);
 			received += frame.payload.body_fragment.len;
 			index = payload+received;
 		}
-		JANUS_LOG(LOG_VERB, "Got %"SCNu64"/%"SCNu64" bytes (%"SCNu64")\n", received, total, frame.payload.body_fragment.len);
-		JANUS_LOG(LOG_HUGE, "%s\n", payload);
+		JANUS_LOG(LOG_DBG, "Got %"SCNu64"/%"SCNu64" bytes (%"SCNu64")\n", received, total, frame.payload.body_fragment.len);
+		JANUS_LOG(LOG_VERB, "Recv message: %s\n", payload);
 		/* Parse it */
 		janus_request_source *source = janus_request_source_new(JANUS_SOURCE_RABBITMQ, (void *)rmq_client, (void *)correlation);
 		/* Parse the JSON payload */
@@ -3236,8 +3236,8 @@ void *janus_rmq_out_thread(void *data) {
 		while ((response = g_async_queue_try_pop(rmq_client->responses)) != NULL) {
 			if(!g_atomic_int_get(&stop) && response && response->payload) {
 				/* Gotcha! */
-				JANUS_LOG(LOG_VERB, "Sending response to RabbitMQ (%zu bytes)...\n", strlen(response->payload));
-				JANUS_LOG(LOG_HUGE, "%s\n", response->payload);
+				JANUS_LOG(LOG_DBG, "Sending response to RabbitMQ (%zu bytes)...\n", strlen(response->payload));
+				JANUS_LOG(LOG_VERB, "Send message: %s\n", response->payload);
 				amqp_basic_properties_t props;
 				props._flags = 0;
 				/*props._flags |= AMQP_BASIC_REPLY_TO_FLAG;
@@ -3305,7 +3305,7 @@ void *janus_rmq_out_thread(void *data) {
 }
 
 void janus_rmq_task(gpointer data, gpointer user_data) {
-	JANUS_LOG(LOG_VERB, "Thread pool, serving request\n");
+	JANUS_LOG(LOG_DBG, "Thread pool, serving request\n");
 	janus_rabbitmq_request *request = (janus_rabbitmq_request *)data;
 	janus_rabbitmq_client *client = (janus_rabbitmq_client *)data;
 	if(request == NULL || client == NULL) {
