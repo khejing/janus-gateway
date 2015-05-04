@@ -1199,7 +1199,9 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 			if(p && p->session) {
 				p->room = NULL;
 				int ret = gateway->push_event(p->session->handle, &janus_audiobridge_plugin, NULL, response_text, NULL, NULL);
-				JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				if(ret != JANUS_OK){
+					JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				}
 				/* Get rid of queued packets */
 				janus_mutex_lock(&p->qmutex);
 				p->active = FALSE;
@@ -1507,7 +1509,9 @@ void janus_audiobridge_hangup_media(janus_plugin_session *handle) {
 			}
 			JANUS_LOG(LOG_VERB, "Notifying participant %"SCNu64" (%s)\n", p->user_id, p->display ? p->display : "??");
 			int ret = gateway->push_event(p->session->handle, &janus_audiobridge_plugin, NULL, leaving_text, NULL, NULL);
-			JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+			if(ret != JANUS_OK){
+				JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+			}
 		}
 		g_free(leaving_text);
 	}
@@ -1819,7 +1823,9 @@ static void *janus_audiobridge_handler(void *data) {
 				}
 				JANUS_LOG(LOG_VERB, "Notifying participant %"SCNu64" (%s)\n", p->user_id, p->display ? p->display : "??");
 				int ret = gateway->push_event(p->session->handle, &janus_audiobridge_plugin, NULL, newuser_text, NULL, NULL);
-				JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				if(ret != JANUS_OK){
+					JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				}
 			}
 			g_free(newuser_text);
 			/* Return a list of all available participants for the new participant now */
@@ -1923,7 +1929,9 @@ static void *janus_audiobridge_handler(void *data) {
 					}
 					JANUS_LOG(LOG_VERB, "Notifying participant %"SCNu64" (%s)\n", p->user_id, p->display ? p->display : "??");
 					int ret = gateway->push_event(p->session->handle, &janus_audiobridge_plugin, NULL, pub_text, NULL, NULL);
-					JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+					if(ret != JANUS_OK){
+						JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+					}
 				}
 				g_free(pub_text);
 				janus_mutex_unlock(&audiobridge->mutex);
@@ -2109,7 +2117,9 @@ static void *janus_audiobridge_handler(void *data) {
 				}
 				JANUS_LOG(LOG_VERB, "Notifying participant %"SCNu64" (%s)\n", p->user_id, p->display ? p->display : "??");
 				int ret = gateway->push_event(p->session->handle, &janus_audiobridge_plugin, NULL, leaving_text, NULL, NULL);
-				JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				if(ret != JANUS_OK){
+					JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				}
 			}
 			g_free(leaving_text);
 			janus_mutex_unlock(&old_audiobridge->mutex);
@@ -2150,7 +2160,9 @@ static void *janus_audiobridge_handler(void *data) {
 				}
 				JANUS_LOG(LOG_VERB, "Notifying participant %"SCNu64" (%s)\n", p->user_id, p->display ? p->display : "??");
 				int ret = gateway->push_event(p->session->handle, &janus_audiobridge_plugin, NULL, newuser_text, NULL, NULL);
-				JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				if(ret != JANUS_OK){
+					JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				}
 			}
 			g_free(newuser_text);
 			/* Return a list of all available participants for the new participant now */
@@ -2201,7 +2213,9 @@ static void *janus_audiobridge_handler(void *data) {
 				}
 				JANUS_LOG(LOG_VERB, "Notifying participant %"SCNu64" (%s)\n", p->user_id, p->display ? p->display : "??");
 				int ret = gateway->push_event(p->session->handle, &janus_audiobridge_plugin, NULL, leaving_text, NULL, NULL);
-				JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				if(ret != JANUS_OK){
+					JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+				}
 			}
 			g_free(leaving_text);
 			/* Actually leave the room... */
@@ -2237,7 +2251,9 @@ static void *janus_audiobridge_handler(void *data) {
 		/* Any SDP to handle? */
 		if(!msg->sdp) {
 			int ret = gateway->push_event(msg->handle, &janus_audiobridge_plugin, msg->transaction, event_text, NULL, NULL);
-			JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+			if(ret != JANUS_OK){
+				JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+			}
 		} else {
 			JANUS_LOG(LOG_VERB, "This is involving a negotiation (%s) as well:\n%s\n", msg->sdp_type, msg->sdp);
 			const char *type = NULL;
@@ -2275,7 +2291,9 @@ static void *janus_audiobridge_handler(void *data) {
 			/* How long will the gateway take to push the event? */
 			gint64 start = janus_get_monotonic_time();
 			int res = gateway->push_event(msg->handle, &janus_audiobridge_plugin, msg->transaction, event_text, type, sdp);
-			JANUS_LOG(LOG_VERB, "  >> Pushing event: %d (took %"SCNu64" us)\n", res, janus_get_monotonic_time()-start);
+			if(res != JANUS_OK){
+				JANUS_LOG(LOG_ERR, "  >> Pushing event: %d (took %"SCNu64" us)\n", res, janus_get_monotonic_time()-start);
+			}
 			if(res != JANUS_OK) {
 				/* TODO Failed to negotiate? We should remove this participant */
 			} else {
@@ -2305,7 +2323,9 @@ static void *janus_audiobridge_handler(void *data) {
 					}
 					JANUS_LOG(LOG_VERB, "Notifying participant %"SCNu64" (%s)\n", p->user_id, p->display ? p->display : "??");
 					int ret = gateway->push_event(p->session->handle, &janus_audiobridge_plugin, NULL, pub_text, NULL, NULL);
-					JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+					if(ret != JANUS_OK){
+						JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+					}
 				}
 				g_free(pub_text);
 				participant->active = TRUE;
@@ -2332,7 +2352,9 @@ error:
 			json_decref(event);
 			JANUS_LOG(LOG_VERB, "Pushing event: %s\n", event_text);
 			int ret = gateway->push_event(msg->handle, &janus_audiobridge_plugin, msg->transaction, event_text, NULL, NULL);
-			JANUS_LOG(LOG_VERB, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+			if(ret != JANUS_OK){
+				JANUS_LOG(LOG_ERR, "  >> %d (%s)\n", ret, janus_get_api_error(ret));
+			}
 			g_free(event_text);
 			janus_audiobridge_message_free(msg);
 		}

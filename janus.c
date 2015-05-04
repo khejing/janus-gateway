@@ -1096,6 +1096,8 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 
 			ret = janus_process_error(source, session_id, transaction_text, JANUS_ERROR_PLUGIN_ATTACH, "Couldn't attach to plugin: error '%d'", error);
 			goto jsondone;
+		} else {
+			JANUS_LOG(LOG_INFO, "plugin handle attach success!\n");
 		}
 		/* Prepare JSON reply */
 		json_t *reply = json_object();
@@ -2668,8 +2670,9 @@ int janus_process_success(janus_request_source *source, const char *transaction,
 		/* FIXME Add to the queue of outgoing responses */
 		janus_rabbitmq_response *response = (janus_rabbitmq_response *)calloc(1, sizeof(janus_rabbitmq_response));
 		response->payload = payload;
-		response->correlation_id = (char *)source->msg;
+		//response->correlation_id = (char *)source->msg;
 		g_async_queue_push(rmq_client->responses, response);
+		JANUS_LOG(LOG_VERB, "Push message info send queue success: %s\n", payload);
 		return MHD_YES;
 #else
 		JANUS_LOG(LOG_ERR, "RabbitMQ support not compiled\n");
