@@ -3275,8 +3275,8 @@ void *janus_rmq_out_thread(void *data) {
 				while ((event = g_async_queue_try_pop(session->messages)) != NULL) {
 					if(!rmq_client->destroy && session && !session->destroy && !g_atomic_int_get(&stop) && event && event->payload) {
 						/* Gotcha! */
-						JANUS_LOG(LOG_VERB, "Sending event to RabbitMQ (%zu bytes)...\n", strlen(event->payload));
-						JANUS_LOG(LOG_HUGE, "%s\n", event->payload);
+						JANUS_LOG(LOG_DBG, "Sending event to RabbitMQ (%zu bytes)...\n", strlen(event->payload));
+						JANUS_LOG(LOG_VERB, "Send event: %s\n", event->payload);
 						amqp_basic_properties_t props;
 						props._flags = 0;
 						/*props._flags |= AMQP_BASIC_REPLY_TO_FLAG;
