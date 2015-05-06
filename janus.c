@@ -358,9 +358,9 @@ static gboolean janus_check_sessions(gpointer user_data) {
 					if(client) {
 						janus_mutex_lock(&client->mutex);
 						if(client->sessions)
-							g_hash_table_remove(client->sessions, GUINT_TO_POINTER(session_id));
+							g_hash_table_remove(client->sessions, GUINT_TO_POINTER(session->session_id));
 						janus_mutex_unlock(&client->mutex);
-						JANUS_LOG(LOG_INFO, "Remove session from RabbitMQ %p for timeout: %"SCNu64"\n", client->sessions, session_id);
+						JANUS_LOG(LOG_INFO, "Remove session from RabbitMQ %p for timeout: %"SCNu64"\n", client->sessions, session->session_id);
 					}
 				}
 #endif
