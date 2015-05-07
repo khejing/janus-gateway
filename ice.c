@@ -1475,7 +1475,9 @@ void janus_ice_candidates_to_sdp(janus_ice_handle *handle, char *sdp, guint stre
 	if(janus_get_public_ip() != janus_get_local_ip()) {
 		host_ip = janus_get_public_ip(); 
 		JANUS_LOG(LOG_VERB, "[%"SCNu64"] Public IP specified (%s), using that as host address in the candidates\n", handle->handle_id, host_ip);
-	} 
+	}
+	// added by khejing, date: 2015-5-7
+	gchar another_buffer[100];
 	for (i = candidates; i; i = i->next) {
 		NiceCandidate *c = (NiceCandidate *) i->data;
 		JANUS_LOG(LOG_VERB, "[%"SCNu64"] Stream #%d, Component #%d\n", handle->handle_id, c->stream_id, c->component_id);
@@ -1561,6 +1563,17 @@ void janus_ice_candidates_to_sdp(janus_ice_handle *handle, char *sdp, guint stre
 						port,
 						base_address,
 						base_port);
+				//Added by khejing, date: 2015-5-7
+				g_snprintf(another_buffer, 100,
+									"a=candidate:%s %d %s %d %s %d typ srflx raddr %s rport %d\r\n",
+										c->foundation + 1,
+										c->component_id,
+										"udp",
+										c->priority,
+										address,
+										base_port,
+										base_address,
+										base_port);
 			} else {
 				if(!janus_ice_tcp_enabled) {
 					/* ICE-TCP support disabled */
@@ -1738,6 +1751,13 @@ void janus_ice_candidates_to_sdp(janus_ice_handle *handle, char *sdp, guint stre
 		nice_candidate_free(c);
 	}
 	g_slist_free(candidates);
+	//Added by khejing, date: 2015-5-7
+	g_strlcat(sdp, another_buffer, BUFSIZE);
+	JANUS_LOG(LOG_VERB, "[%"SCNu64"]     %s\n", handle->handle_id, another_buffer);
+	if(log_candidates) {
+		/* Save for the summary, in case we need it */
+		component->local_candidates = g_slist_append(component->local_candidates, g_strdup(another_buffer+strlen("a=candidate:")));
+	}
 }
 
 void janus_ice_setup_remote_candidates(janus_ice_handle *handle, guint stream_id, guint component_id) {
