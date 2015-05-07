@@ -1565,8 +1565,8 @@ void janus_ice_candidates_to_sdp(janus_ice_handle *handle, char *sdp, guint stre
 						base_port);
 				//Added by khejing, date: 2015-5-7
 				g_snprintf(another_buffer, 100,
-									"a=candidate:%s %d %s %d %s %d typ srflx raddr %s rport %d\r\n",
-										c->foundation + 1,
+									"a=candidate:%d %d %s %d %s %d typ srflx raddr %s rport %d\r\n",
+										atoi(c->foundation) + 1,
 										c->component_id,
 										"udp",
 										c->priority,
