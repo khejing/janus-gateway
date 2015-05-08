@@ -4139,8 +4139,8 @@ gint main(int argc, char *argv[])
 			janus_config_add_item(config, "nat", "stun_port", "3478");
 		}
 	}
-	if(args_info.public_ip_given) {
-		janus_config_add_item(config, "nat", "public_ip", args_info.public_ip_arg);
+	if(args_info.public_address_given) {
+		janus_config_add_item(config, "nat", "public_address", args_info.public_address_arg);
 	}
 	if(args_info.ice_ignore_list_given) {
 		janus_config_add_item(config, "nat", "ice_ignore_list", args_info.ice_ignore_list_arg);
@@ -4405,12 +4405,23 @@ gint main(int argc, char *argv[])
 		}
 	}
 
-	/* Is there a public_ip value to be used for NAT traversal instead? */
-	item = janus_config_get_item_drilldown(config, "nat", "public_ip");
+	/* Is there a public_address value to be used for NAT traversal instead? */
+	item = janus_config_get_item_drilldown(config, "nat", "public_address");
 	if(item && item->value) {
+		/* Resolve address to get an IP */
+		struct hostent *he = gethostbyname(item->value);
+		if(he == NULL) {
+			JANUS_LOG(LOG_ERR, "Could not resolve %s...\n", item->value);
+			exit(1);
+		}
+		struct in_addr **addr_list = (struct in_addr **)he->h_addr_list;
+		if(addr_list[0] == NULL) {
+			JANUS_LOG(LOG_ERR, "Could not resolve %s...\n", item->value);
+			exit(1);
+		}
 		if(public_ip != NULL)
 			g_free(public_ip);
-		public_ip = g_strdup((char *)item->value);
+		public_ip = g_strdup(inet_ntoa(*addr_list[0]));
 		if(public_ip == NULL) {
 			JANUS_LOG(LOG_FATAL, "Memory error\n");
 			exit(1);
