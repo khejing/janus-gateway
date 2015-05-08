@@ -360,7 +360,7 @@ static gboolean janus_check_sessions(gpointer user_data) {
 						if(client->sessions)
 							g_hash_table_remove(client->sessions, GUINT_TO_POINTER(session->session_id));
 						janus_mutex_unlock(&client->mutex);
-						JANUS_LOG(LOG_INFO, "Remove session from RabbitMQ %p for timeout: %"SCNu64"\n", client->sessions, session->session_id);
+						JANUS_LOG(LOG_VERB, "Remove session from RabbitMQ %p for timeout: %"SCNu64"\n", client->sessions, session->session_id);
 					}
 				}
 #endif
@@ -997,7 +997,6 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 					client->sessions = g_hash_table_new(NULL, NULL);
 				g_hash_table_insert(client->sessions, GUINT_TO_POINTER(session_id), session);
 				janus_mutex_unlock(&client->mutex);
-				JANUS_LOG(LOG_INFO, "Creating new session for RabbitMQ %p: %"SCNu64"\n", client->sessions, session_id);
 			}
 		}
 #endif
@@ -1112,8 +1111,6 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 
 			ret = janus_process_error(source, session_id, transaction_text, JANUS_ERROR_PLUGIN_ATTACH, "Couldn't attach to plugin: error '%d'", error);
 			goto jsondone;
-		} else {
-			JANUS_LOG(LOG_INFO, "plugin handle attach success!\n");
 		}
 		/* Prepare JSON reply */
 		json_t *reply = json_object();
@@ -1158,7 +1155,7 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 				if(client->sessions)
 					g_hash_table_remove(client->sessions, GUINT_TO_POINTER(session_id));
 				janus_mutex_unlock(&client->mutex);
-				JANUS_LOG(LOG_INFO, "Remove session from RabbitMQ %p for client destroy: %"SCNu64"\n", client->sessions, session_id);
+				JANUS_LOG(LOG_VERB, "Remove session from RabbitMQ %p for client destroy: %"SCNu64"\n", client->sessions, session_id);
 			}
 		}
 #endif
@@ -2693,7 +2690,7 @@ int janus_process_success(janus_request_source *source, const char *transaction,
 		response->payload = payload;
 		//response->correlation_id = (char *)source->msg;
 		g_async_queue_push(rmq_client->responses, response);
-		JANUS_LOG(LOG_VERB, "Push message info send queue success: %s\n", payload);
+		JANUS_LOG(LOG_DBG, "Push message info send queue success: %s\n", payload);
 		return MHD_YES;
 #else
 		JANUS_LOG(LOG_ERR, "RabbitMQ support not compiled\n");
