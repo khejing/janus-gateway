@@ -302,7 +302,7 @@ static GMainContext *sessions_watchdog_context = NULL;
 static gboolean janus_cleanup_session(gpointer user_data) {
 	janus_session *session = (janus_session *) user_data;
 
-	JANUS_LOG(LOG_INFO, "Cleaning up session %"SCNu64"...\n", session->session_id);
+	JANUS_LOG(LOG_DBG, "Cleaning up session %"SCNu64"...\n", session->session_id);
 	janus_session_destroy(session->session_id);
 
 	return G_SOURCE_REMOVE;
@@ -471,7 +471,7 @@ gint janus_session_destroy(guint64 session_id) {
 		JANUS_LOG(LOG_ERR, "Couldn't find session to destroy: %"SCNu64"\n", session_id);
 		return -1;
 	}
-	JANUS_LOG(LOG_INFO, "Destroying session %"SCNu64"\n", session_id);
+	JANUS_LOG(LOG_VERB, "Destroying session %"SCNu64"\n", session_id);
 	session->destroy = 1;
 	if (session->ice_handles != NULL && g_hash_table_size(session->ice_handles) > 0) {
 		GHashTableIter iter;
@@ -521,7 +521,7 @@ void janus_session_free(janus_session *session) {
 int janus_ws_client_connect(void *cls, const struct sockaddr *addr, socklen_t addrlen) {
 	struct sockaddr_in *sin = (struct sockaddr_in *)addr;
 	char *ip = inet_ntoa(sin->sin_addr);
-	JANUS_LOG(LOG_VERB, "New connection on REST API: %s\n", ip);
+	JANUS_LOG(LOG_HUGE, "New connection on REST API: %s\n", ip);
 	/* TODO Implement access limitation based on IP addresses */
 	return MHD_YES;
 }
@@ -529,7 +529,7 @@ int janus_ws_client_connect(void *cls, const struct sockaddr *addr, socklen_t ad
 int janus_admin_ws_client_connect(void *cls, const struct sockaddr *addr, socklen_t addrlen) {
 	struct sockaddr_in *sin = (struct sockaddr_in *)addr;
 	char *ip = inet_ntoa(sin->sin_addr);
-	JANUS_LOG(LOG_VERB, "New connection on admin/monitor: %s\n", ip);
+	JANUS_LOG(LOG_HUGE, "New connection on admin/monitor: %s\n", ip);
 	/* Any access limitation based on this IP address? */
 	if(!janus_admin_is_allowed(ip)) {
 		JANUS_LOG(LOG_ERR, "IP %s is unauthorized to connect to the admin/monitor interface\n", ip);
@@ -548,13 +548,13 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 	gchar *session_path = NULL, *handle_path = NULL;
 	gchar **basepath = NULL, **path = NULL;
 
-	JANUS_LOG(LOG_VERB, "Got a HTTP %s request on %s...\n", method, url);
 	/* Is this the first round? */
 	int firstround = 0;
 	janus_http_msg *msg = (janus_http_msg *)*ptr;
 	if (msg == NULL) {
 		firstround = 1;
-		JANUS_LOG(LOG_VERB, " ... Just parsing headers for now...\n");
+		JANUS_LOG(LOG_VERB, "Got a HTTP %s request on %s...\n", method, url);
+		JANUS_LOG(LOG_DBG, " ... Just parsing headers for now...\n");
 		msg = calloc(1, sizeof(janus_http_msg));
 		if(msg == NULL) {
 			JANUS_LOG(LOG_FATAL, "Memory error!\n");
@@ -570,6 +570,8 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 		*ptr = msg;
 		MHD_get_connection_values(connection, MHD_HEADER_KIND, &janus_ws_headers, msg);
 		ret = MHD_YES;
+	} else {
+		JANUS_LOG(LOG_DBG, "Processing HTTP %s request on %s...\n", method, url);
 	}
 	/* Parse request */
 	if (strcasecmp(method, "GET") && strcasecmp(method, "POST") && strcasecmp(method, "OPTIONS")) {
@@ -634,7 +636,7 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 	}
 	if(firstround)
 		return ret;
-	JANUS_LOG(LOG_VERB, " ... parsing request...\n");
+	JANUS_LOG(LOG_DBG, " ... parsing request...\n");
 	if(path != NULL && path[1] != NULL && strlen(path[1]) > 0) {
 		session_path = g_strdup(path[1]);
 		if(session_path == NULL) {
@@ -643,7 +645,7 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 			MHD_destroy_response(response);
 			goto done;
 		}
-		JANUS_LOG(LOG_VERB, "Session: %s\n", session_path);
+		JANUS_LOG(LOG_HUGE, "Session: %s\n", session_path);
 	}
 	if(session_path != NULL && path[2] != NULL && strlen(path[2]) > 0) {
 		handle_path = g_strdup(path[2]);
@@ -653,7 +655,7 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 			MHD_destroy_response(response);
 			goto done;
 		}
-		JANUS_LOG(LOG_VERB, "Handle: %s\n", handle_path);
+		JANUS_LOG(LOG_HUGE, "Handle: %s\n", handle_path);
 	}
 	if(session_path != NULL && handle_path != NULL && path[3] != NULL && strlen(path[3]) > 0) {
 		JANUS_LOG(LOG_ERR, "Too many components...\n");
@@ -669,9 +671,8 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 	}
 	/* Get payload, if any */
 	if(!strcasecmp(method, "POST")) {
-		JANUS_LOG(LOG_VERB, "Processing POST data (%s)...\n", msg->contenttype);
+		JANUS_LOG(LOG_HUGE, "Processing POST data (%s) (%zu bytes)...\n", msg->contenttype, *upload_data_size);
 		if(*upload_data_size != 0) {
-			JANUS_LOG(LOG_VERB, "  -- Uploaded data (%zu bytes)\n", *upload_data_size);
 			if(msg->payload == NULL)
 				msg->payload = calloc(1, *upload_data_size+1);
 			else
@@ -683,21 +684,21 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 				goto done;
 			}
 			memcpy(msg->payload+msg->len, upload_data, *upload_data_size);
-			memset(msg->payload+msg->len+*upload_data_size, '\0', 1);
 			msg->len += *upload_data_size;
-			JANUS_LOG(LOG_VERB, "  -- Data we have now (%zu bytes)\n", msg->len);
+			memset(msg->payload + msg->len, '\0', 1);
+			JANUS_LOG(LOG_DBG, "  -- Data we have now (%zu bytes)\n", msg->len);
 			*upload_data_size = 0;	/* Go on */
 			ret = MHD_YES;
 			goto done;
 		}
-		JANUS_LOG(LOG_VERB, "Done getting payload, we can answer\n");
+		JANUS_LOG(LOG_DBG, "Done getting payload, we can answer\n");
 		if(msg->payload == NULL) {
 			JANUS_LOG(LOG_ERR, "No payload :-(\n");
 			ret = MHD_NO;
 			goto done;
 		}
 		payload = msg->payload;
-		JANUS_LOG(LOG_VERB, "%s\n", payload);
+		JANUS_LOG(LOG_HUGE, "%s\n", payload);
 	}
 
 	/* Process the request, specifying this HTTP connection is the source */
@@ -1313,15 +1314,17 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 				goto jsondone;
 			}
 			/* FIXME We're only handling single audio/video lines for now... */
-			JANUS_LOG(LOG_VERB, "[%"SCNu64"] Audio %s been negotiated\n", handle->handle_id, audio ? "has" : "has NOT");
+			JANUS_LOG(LOG_VERB, "[%"SCNu64"] Audio %s been negotiated, Video %s been negotiated, SCTP/DataChannels %s been negotiated\n",
+			                    handle->handle_id,
+			                    audio ? "has" : "has NOT",
+			                    video ? "has" : "has NOT",
+			                    data ? "have" : "have NOT");
 			if(audio > 1) {
 				JANUS_LOG(LOG_WARN, "[%"SCNu64"] More than one audio line? only going to negotiate one...\n", handle->handle_id);
 			}
-			JANUS_LOG(LOG_VERB, "[%"SCNu64"] Video %s been negotiated\n", handle->handle_id, video ? "has" : "has NOT");
 			if(video > 1) {
 				JANUS_LOG(LOG_WARN, "[%"SCNu64"] More than one video line? only going to negotiate one...\n", handle->handle_id);
 			}
-			JANUS_LOG(LOG_VERB, "[%"SCNu64"] SCTP/DataChannels %s been negotiated\n", handle->handle_id, data ? "have" : "have NOT");
 			if(data > 1) {
 				JANUS_LOG(LOG_WARN, "[%"SCNu64"] More than one data line? only going to negotiate one...\n", handle->handle_id);
 			}
@@ -1330,9 +1333,10 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 				JANUS_LOG(LOG_WARN, "[%"SCNu64"]   -- DataChannels have been negotiated, but support for them has not been compiled...\n", handle->handle_id);
 			}
 #endif
-			JANUS_LOG(LOG_VERB, "[%"SCNu64"] The browser %s BUNDLE\n", handle->handle_id, bundle ? "supports" : "does NOT support");
-			JANUS_LOG(LOG_VERB, "[%"SCNu64"] The browser %s rtcp-mux\n", handle->handle_id, rtcpmux ? "supports" : "does NOT support");
-			JANUS_LOG(LOG_VERB, "[%"SCNu64"] The browser %s doing Trickle ICE\n", handle->handle_id, trickle ? "is" : "is NOT");
+			JANUS_LOG(LOG_VERB, "[%"SCNu64"] The browser: %s BUNDLE, %s rtcp-mux, %s doing Trickle ICE\n", handle->handle_id,
+			                    bundle  ? "supports" : "does NOT support",
+			                    rtcpmux ? "supports" : "does NOT support",
+			                    trickle ? "is"       : "is NOT"                                                              );
 			/* Check if it's a new session, or an update... */
 			if(!janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_READY)
 					|| janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_ALERT)) {
@@ -1372,7 +1376,7 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 						janus_flags_clear(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_TRICKLE);
 					}
 					if(janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_BUNDLE)) {
-						JANUS_LOG(LOG_VERB, "[%"SCNu64"]   -- bundle is supported by the browser, getting rid of one of the RTP/RTCP components, if any...\n", handle->handle_id);
+						JANUS_LOG(LOG_HUGE, "[%"SCNu64"]   -- bundle is supported by the browser, getting rid of one of the RTP/RTCP components, if any...\n", handle->handle_id);
 						if(audio) {
 							/* Get rid of video and data, if present */
 							if(handle->streams && handle->video_stream) {
@@ -1407,7 +1411,7 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 						}
 					}
 					if(janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_RTCPMUX)) {
-						JANUS_LOG(LOG_VERB, "[%"SCNu64"]   -- rtcp-mux is supported by the browser, getting rid of RTCP components, if any...\n", handle->handle_id);
+						JANUS_LOG(LOG_HUGE, "[%"SCNu64"]   -- rtcp-mux is supported by the browser, getting rid of RTCP components, if any...\n", handle->handle_id);
 						if(handle->audio_stream && handle->audio_stream->components != NULL) {
 							nice_agent_attach_recv (handle->agent, handle->audio_id, 2, g_main_loop_get_context (handle->iceloop), NULL, NULL);
 							janus_ice_component_free(handle->audio_stream->components, handle->audio_stream->rtcp_component);
@@ -1421,20 +1425,20 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 					}
 					/* FIXME Any disabled m-line? */
 					if(strstr(jsep_sdp, "m=audio 0")) {
-						JANUS_LOG(LOG_VERB, "Audio disabled via SDP\n");
+						JANUS_LOG(LOG_VERB, "[%"SCNu64"] Audio disabled via SDP\n", handle->handle_id);
 						if(!janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_BUNDLE)
 								|| (!video && !data)) {
-							JANUS_LOG(LOG_VERB, "  -- Marking audio stream as disabled\n");
+							JANUS_LOG(LOG_HUGE, "  -- Marking audio stream as disabled\n");
 							janus_ice_stream *stream = g_hash_table_lookup(handle->streams, GUINT_TO_POINTER(handle->audio_id));
 							if(stream)
 								stream->disabled = TRUE;
 						}
 					}
 					if(strstr(jsep_sdp, "m=video 0")) {
-						JANUS_LOG(LOG_VERB, "Video disabled via SDP\n");
+						JANUS_LOG(LOG_VERB, "[%"SCNu64"] Video disabled via SDP\n", handle->handle_id);
 						if(!janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_BUNDLE)
 								|| (!audio && !data)) {
-							JANUS_LOG(LOG_VERB, "  -- Marking video stream as disabled\n");
+							JANUS_LOG(LOG_HUGE, "  -- Marking video stream as disabled\n");
 							janus_ice_stream *stream = NULL;
 							if(!janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_BUNDLE)) {
 								stream = g_hash_table_lookup(handle->streams, GUINT_TO_POINTER(handle->video_id));
@@ -1447,10 +1451,10 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 						}
 					}
 					if(strstr(jsep_sdp, "m=application 0 DTLS/SCTP")) {
-						JANUS_LOG(LOG_VERB, "Data Channel disabled via SDP\n");
+						JANUS_LOG(LOG_VERB, "[%"SCNu64"] Data Channel disabled via SDP\n", handle->handle_id);
 						if(!janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_BUNDLE)
 								|| (!audio && !video)) {
-							JANUS_LOG(LOG_VERB, "  -- Marking data channel stream as disabled\n");
+							JANUS_LOG(LOG_HUGE, "  -- Marking data channel stream as disabled\n");
 							janus_ice_stream *stream = NULL;
 							if(!janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_BUNDLE)) {
 								stream = g_hash_table_lookup(handle->streams, GUINT_TO_POINTER(handle->data_id));
@@ -1639,10 +1643,9 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 				JANUS_LOG(LOG_VERB, "[%"SCNu64"] Trickle candidate (%s): %s\n", handle->handle_id, json_string_value(mid), json_string_value(rc));
 				/* Is there any stream ready? this trickle may get here before the SDP it relates to */
 				if(handle->audio_stream == NULL && handle->video_stream == NULL && handle->data_stream == NULL) {
-					/* No stream available, wait a bit */
+					JANUS_LOG(LOG_VERB, "[%"SCNu64"] No stream, wait a bit in case this trickle got here before the SDP...\n", handle->handle_id);
 					gint64 waited = 0;
 					while(handle->audio_stream == NULL && handle->video_stream == NULL && handle->data_stream == NULL) {
-						JANUS_LOG(LOG_VERB, "[%"SCNu64"] No stream, wait a bit in case this trickle got here before the SDP...\n", handle->handle_id);
 						g_usleep(100000);
 						waited += 100000;
 						if(waited >= 3*G_USEC_PER_SEC) {
@@ -1653,10 +1656,9 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 				}
 				/* Is the ICE stack ready already? */
 				if(janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_PROCESSING_OFFER)) {
-					/* Still processing the offer, wait a bit */
+					JANUS_LOG(LOG_VERB, "[%"SCNu64"] Still processing the offer, waiting until we're done there...\n", handle->handle_id);
 					gint64 waited = 0;
 					while(janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_PROCESSING_OFFER)) {
-						JANUS_LOG(LOG_VERB, "[%"SCNu64"] Still processing the offer, waiting until we're done there...\n", handle->handle_id);
 						g_usleep(100000);
 						waited += 100000;
 						if(waited >= 5*G_USEC_PER_SEC) {
@@ -1734,35 +1736,29 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 					}
 					json_t *mid = json_object_get(candidate, "sdpMid");
 					if(!mid) {
-						/* Invalid candidate but we don't return an error, we just ignore it */
-						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, missing mandatory element (sdpMid)", i);
+						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, missing mandatory element (sdpMid)\n", i);
 						continue;
 					}
 					if(!json_is_string(mid)) {
-						/* Invalid candidate but we don't return an error, we just ignore it */
-						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, invalid element type (sdpMid should be a string)", i);
+						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, invalid element type (sdpMid should be a string)\n", i);
 						continue;
 					}
 					json_t *mline = json_object_get(candidate, "sdpMLineIndex");
 					if(!mline) {
-						/* Invalid candidate but we don't return an error, we just ignore it */
-						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, missing mandatory element (sdpMLineIndex)", i);
+						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, missing mandatory element (sdpMLineIndex)\n", i);
 						continue;
 					}
 					if(!json_is_integer(mline)) {
-						/* Invalid candidate but we don't return an error, we just ignore it */
-						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, invalid element type (sdpMLineIndex should be an integer)", i);
+						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, invalid element type (sdpMLineIndex should be an integer)\n", i);
 						continue;
 					}
 					json_t *rc = json_object_get(candidate, "candidate");
 					if(!rc) {
-						/* Invalid candidate but we don't return an error, we just ignore it */
-						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, missing mandatory element (candidate)", i);
+						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, missing mandatory element (candidate)\n", i);
 						continue;
 					}
 					if(!json_is_string(rc)) {
-						/* Invalid candidate but we don't return an error, we just ignore it */
-						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, invalid element type (candidate should be a string)", i);
+						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, invalid element type (candidate should be a string)\n", i);
 						continue;
 					}
 					JANUS_LOG(LOG_VERB, "[%"SCNu64"] Trickle candidate at index %zu (%s): %s\n", handle->handle_id, i, json_string_value(mid), json_string_value(rc));
@@ -1770,15 +1766,14 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 					int sdpMLineIndex = json_integer_value(mline);
 					if(sdpMLineIndex < 0 || sdpMLineIndex > 2) {
 						/* FIXME We don't support more than 3 m-lines right now */
-						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, invalid element type (sdpMLineIndex not [0,2])", i);
+						JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, invalid element type (sdpMLineIndex not [0,2])\n", i);
 						continue;
 					}
 					/* Is there any stream ready? this trickle may get here before the SDP it relates to */
 					if(handle->audio_stream == NULL && handle->video_stream == NULL && handle->data_stream == NULL) {
-						/* No stream available, wait a bit */
+						JANUS_LOG(LOG_VERB, "[%"SCNu64"] No stream, wait a bit in case this trickle got here before the SDP...\n", handle->handle_id);
 						gint64 waited = 0;
 						while(handle->audio_stream == NULL && handle->video_stream == NULL && handle->data_stream == NULL) {
-							JANUS_LOG(LOG_VERB, "[%"SCNu64"] No stream, wait a bit in case this trickle got here before the SDP...\n", handle->handle_id);
 							g_usleep(100000);
 							waited += 100000;
 							if(waited >= 3*G_USEC_PER_SEC) {
@@ -1789,10 +1784,9 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 					}
 					/* Is the ICE stack ready already? */
 					if(janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_PROCESSING_OFFER)) {
-						/* Still processing the offer, wait a bit */
+						JANUS_LOG(LOG_VERB, "[%"SCNu64"] Still processing the offer, waiting until we're done there...\n", handle->handle_id);
 						gint64 waited = 0;
 						while(janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_PROCESSING_OFFER)) {
-							JANUS_LOG(LOG_VERB, "[%"SCNu64"] Still processing the offer, waiting until we're done there...\n", handle->handle_id);
 							g_usleep(100000);
 							waited += 100000;
 							if(waited >= 5*G_USEC_PER_SEC) {
@@ -1836,7 +1830,7 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 					} else {
 						janus_ice_stream *stream = video ? handle->video_stream : (data ? handle->data_stream : handle->audio_stream);
 						if(stream == NULL) {
-							JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, no %s stream", i, json_string_value(mid));
+							JANUS_LOG(LOG_WARN, "Trickle error: ignoring candidate at index %zu, no %s stream\n", i, json_string_value(mid));
 							continue;
 						}
 						int res = janus_sdp_parse_candidate(stream, json_string_value(rc), 1);
@@ -1883,13 +1877,13 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 	gchar *session_path = NULL, *handle_path = NULL;
 	gchar **basepath = NULL, **path = NULL;
 
-	JANUS_LOG(LOG_VERB, "Got an admin/monitor HTTP %s request on %s...\n", method, url);
 	/* Is this the first round? */
 	int firstround = 0;
 	janus_http_msg *msg = (janus_http_msg *)*ptr;
 	if (msg == NULL) {
 		firstround = 1;
-		JANUS_LOG(LOG_VERB, " ... Just parsing headers for now...\n");
+		JANUS_LOG(LOG_VERB, "Got an admin/monitor HTTP %s request on %s...\n", method, url);
+		JANUS_LOG(LOG_DBG, " ... Just parsing headers for now...\n");
 		msg = calloc(1, sizeof(janus_http_msg));
 		if(msg == NULL) {
 			JANUS_LOG(LOG_FATAL, "Memory error!\n");
@@ -1969,7 +1963,7 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 	}
 	if(firstround)
 		return ret;
-	JANUS_LOG(LOG_VERB, " ... parsing request...\n");
+	JANUS_LOG(LOG_DBG, " ... parsing request...\n");
 	if(path != NULL && path[1] != NULL && strlen(path[1]) > 0) {
 		session_path = g_strdup(path[1]);
 		if(session_path == NULL) {
@@ -1978,7 +1972,7 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 			MHD_destroy_response(response);
 			goto done;
 		}
-		JANUS_LOG(LOG_VERB, "Session: %s\n", session_path);
+		JANUS_LOG(LOG_HUGE, "Session: %s\n", session_path);
 	}
 	if(session_path != NULL && path[2] != NULL && strlen(path[2]) > 0) {
 		handle_path = g_strdup(path[2]);
@@ -1988,7 +1982,7 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 			MHD_destroy_response(response);
 			goto done;
 		}
-		JANUS_LOG(LOG_VERB, "Handle: %s\n", handle_path);
+		JANUS_LOG(LOG_HUGE, "Handle: %s\n", handle_path);
 	}
 	if(session_path != NULL && handle_path != NULL && path[3] != NULL && strlen(path[3]) > 0) {
 		JANUS_LOG(LOG_ERR, "Too many components...\n");
@@ -2004,9 +1998,8 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 	}
 	/* Get payload, if any */
 	if(!strcasecmp(method, "POST")) {
-		JANUS_LOG(LOG_VERB, "Processing POST data (%s)...\n", msg->contenttype);
+		JANUS_LOG(LOG_HUGE, "Processing POST data (%s) (%zu bytes)...\n", msg->contenttype, *upload_data_size);
 		if(*upload_data_size != 0) {
-			JANUS_LOG(LOG_VERB, "  -- Uploaded data (%zu bytes)\n", *upload_data_size);
 			if(msg->payload == NULL)
 				msg->payload = calloc(1, *upload_data_size+1);
 			else
@@ -2018,21 +2011,21 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 				goto done;
 			}
 			memcpy(msg->payload+msg->len, upload_data, *upload_data_size);
-			memset(msg->payload+msg->len+*upload_data_size, '\0', 1);
 			msg->len += *upload_data_size;
-			JANUS_LOG(LOG_VERB, "  -- Data we have now (%zu bytes)\n", msg->len);
+			memset(msg->payload + msg->len, '\0', 1);
+			JANUS_LOG(LOG_DBG, "  -- Data we have now (%zu bytes)\n", msg->len);
 			*upload_data_size = 0;	/* Go on */
 			ret = MHD_YES;
 			goto done;
 		}
-		JANUS_LOG(LOG_VERB, "Done getting payload, we can answer\n");
+		JANUS_LOG(LOG_DBG, "Done getting payload, we can answer\n");
 		if(msg->payload == NULL) {
 			JANUS_LOG(LOG_ERR, "No payload :-(\n");
 			ret = MHD_NO;
 			goto done;
 		}
 		payload = msg->payload;
-		JANUS_LOG(LOG_VERB, "%s\n", payload);
+		JANUS_LOG(LOG_HUGE, "%s\n", payload);
 	}
 
 	/* Process the request, specifying this HTTP connection is the source */
@@ -2484,7 +2477,7 @@ jsondone:
 
 int janus_ws_headers(void *cls, enum MHD_ValueKind kind, const char *key, const char *value) {
 	janus_http_msg *request = cls;
-	JANUS_LOG(LOG_HUGE, "%s: %s\n", key, value);
+	JANUS_LOG(LOG_DBG, "%s: %s\n", key, value);
 	if(!strcasecmp(key, MHD_HTTP_HEADER_CONTENT_TYPE)) {
 		if(request)
 			request->contenttype = strdup(value);
@@ -2499,7 +2492,7 @@ int janus_ws_headers(void *cls, enum MHD_ValueKind kind, const char *key, const 
 }
 
 void janus_ws_request_completed(void *cls, struct MHD_Connection *connection, void **con_cls, enum MHD_RequestTerminationCode toe) {
-	JANUS_LOG(LOG_VERB, "Request completed, freeing data\n");
+	JANUS_LOG(LOG_DBG, "Request completed, freeing data\n");
 	janus_http_msg *request = *con_cls;
 	if(!request)
 		return;
@@ -2525,7 +2518,7 @@ int janus_ws_notifier(janus_request_source *source, int max_events) {
 		return MHD_NO;
 	if(max_events < 1)
 		max_events = 1;
-	JANUS_LOG(LOG_VERB, "... handling long poll...\n");
+	JANUS_LOG(LOG_DBG, "... handling long poll...\n");
 	janus_http_event *event = NULL;
 	struct MHD_Response *response = NULL;
 	int ret = MHD_NO;
@@ -2624,7 +2617,7 @@ int janus_ws_notifier(janus_request_source *source, int max_events) {
 	/* Finish the request by sending the response */
 	JANUS_LOG(LOG_VERB, "We have a message to serve...\n\t%s\n", event->payload);
 	/* Send event */
-	char *payload = g_strdup(event ? (event->payload ? event->payload : "") : "");
+	char *payload = g_strdup(event && event->payload ? event->payload : "");
 	if(payload == NULL) {
 		JANUS_LOG(LOG_FATAL, "Memory error!\n");
 		ret = MHD_queue_response(connection, MHD_HTTP_INTERNAL_SERVER_ERROR, response);
