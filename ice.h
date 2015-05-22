@@ -177,6 +177,22 @@ void janus_ice_stats_reset(janus_ice_stats *stats);
 void janus_ice_notify_hangup(janus_ice_handle *handle, const char *reason);
 
 
+/* for component last_seqs lists (for determining when to send NACKs) */
+typedef struct janus_seq_info {
+	gint64 ts;
+	guint16 seq;
+	guint16 state;
+	struct janus_seq_info *next;
+	struct janus_seq_info *prev;
+} seq_info_t;
+enum {
+	SEQ_MISSING,
+	SEQ_NACKED,
+	SEQ_GIVEUP,
+	SEQ_RECVED
+};
+
+
 /*! \brief Janus ICE handle */
 struct janus_ice_handle {
 	/*! \brief Opaque pointer to the gateway/peer session */
@@ -275,6 +291,7 @@ struct janus_ice_stream {
 	janus_mutex mutex;
 };
 
+#define LAST_SEQS_MAX_LEN 160
 /*! \brief Janus ICE component */
 struct janus_ice_component {
 	/*! \brief Janus ICE stream this component belongs to */
@@ -301,12 +318,24 @@ struct janus_ice_component {
 	janus_dtls_srtp *dtls;
 	/*! \brief List of previously sent janus_rtp_packet RTP packets, in case we receive NACKs */
 	GList *retransmit_buffer;
-	/*! \brief List of recently received sequence numbers (as a support to NACK generation) */
-	GList *last_seqs;
-	/*! \brief Time when the last NACK was sent */
-	gint64 last_nack_time;
-	/*! \brief Time when we last notified the plugin about a slow link (too many received NACKs) */
+	/*! \brief Last time a log message about sending retransmits was printed */
+	gint64 retransmit_log_ts;
+	/*! \brief Number of retransmitted packets since last log message */
+	guint retransmit_recent_cnt;
+	/*! \brief Last time a log message about sending NACKs was printed */
+	gint64 nack_sent_log_ts;
+	/*! \brief Number of NACKs sent since last log message */
+	guint nack_sent_recent_cnt;
+	/*! \brief List of recently received audio sequence numbers (as a support to NACK generation) */
+	seq_info_t *last_seqs_audio;
+	/*! \brief List of recently received video sequence numbers (as a support to NACK generation) */
+	seq_info_t *last_seqs_video;
+	/*! \brief Last time the slow_link callback (of the plugin) was called */
 	gint64 last_slowlink_time;
+	/*! \brief Start time of recent NACKs (for slow_link) */
+	gint64 sl_nack_period_ts;
+	/*! \brief Count of recent NACKs (for slow_link) */
+	guint sl_nack_recent_cnt;
 	/*! \brief Stats for incoming data (audio/video/data) */
 	janus_ice_stats in_stats;
 	/*! \brief Stats for outgoing data (audio/video/data) */

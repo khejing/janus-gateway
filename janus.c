@@ -1251,18 +1251,12 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 				goto jsondone;
 			}
 			jsep_type = g_strdup(json_string_value(type));
-			if(jsep_type == NULL) {
-				JANUS_LOG(LOG_FATAL, "Memory error!\n");
-				ret = janus_process_error(source, session_id, transaction_text, JANUS_ERROR_UNKNOWN, "Memory error");
-				goto jsondone;
-			}
 			type = NULL;
 			/* Are we still cleaning up from a previous media session? */
 			if(janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_CLEANING)) {
 				JANUS_LOG(LOG_INFO, "[%"SCNu64"] Still cleaning up from a previous media session, let's wait a bit...\n", handle->handle_id);
 				gint64 waited = 0;
 				while(janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_CLEANING)) {
-					JANUS_LOG(LOG_VERB, "[%"SCNu64"] Still cleaning up from a previous media session, let's wait a bit...\n", handle->handle_id);
 					g_usleep(100000);
 					waited += 100000;
 					if(waited >= 3*G_USEC_PER_SEC) {
@@ -5088,27 +5082,31 @@ gint main(int argc, char *argv[])
 		}
 	}
 
-#ifdef HAVE_WEBSOCKETS
 	while(!g_atomic_int_get(&stop)) {
+		/* Loop until we have to stop */
+#ifdef HAVE_WEBSOCKETS
 		if(wss || swss) {
 			/* libwebsockets needs us to call the service ourselves on a regular basis */
 			if(wss != NULL)
 				libwebsocket_service(wss, 100);
 			if(swss != NULL)
 				libwebsocket_service(swss, 100);
-		} else {
-			/* Loop until we have to stop */
-			g_usleep(250000);
+		} else
+#endif
+		{
+			usleep(250000); /* A signal will cancel usleep() but not g_usleep() */
 		}
 	}
-#else
-	while(!g_atomic_int_get(&stop)) {
-		/* Loop until we have to stop */
-		g_usleep(250000);
-	}
-#endif
 
 	/* Done */
+
+	//~ JANUS_LOG(LOG_INFO, "Closing webserver(s)...\n");
+	//~ if(ws)        MHD_quiesce_daemon(ws);
+	//~ if(sws)       MHD_quiesce_daemon(sws);
+	//~ if(admin_ws)  MHD_quiesce_daemon(admin_ws);
+	//~ if(admin_sws) MHD_quiesce_daemon(admin_sws);
+	//~ g_usleep(155000); /* Long-poll loop sleeps for 100ms between status checks */
+
 	JANUS_LOG(LOG_INFO, "Ending watchdog mainloop...\n");
 	g_main_loop_quit(watchdog_loop);
 	g_thread_join(watchdog);
@@ -5118,7 +5116,8 @@ gint main(int argc, char *argv[])
 
 	if(config)
 		janus_config_destroy(config);
-	JANUS_LOG(LOG_INFO, "Closing webserver(s)...\n");
+
+	JANUS_LOG(LOG_INFO, "Stopping webserver(s)...\n");
 	if(ws)
 		MHD_stop_daemon(ws);
 	ws = NULL;
