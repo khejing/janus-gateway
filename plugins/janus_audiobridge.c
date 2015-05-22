@@ -2377,10 +2377,15 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 	/* Do we need to record the mix? */
 	if(audiobridge->record) {
 		char filename[255];
+		char janus_rec_ts[16] = "";
+		struct tm janustmresult;
+		time_t janusrectime = time(NULL);
+		localtime_r(&janusrectime, &janustmresult);
+		strftime(janus_rec_ts, sizeof(janus_rec_ts), "%Y%m%d%H%M%S", &janustmresult);
 		if(audiobridge->record_file)
 			g_snprintf(filename, 255, "%s", audiobridge->record_file);
 		else
-			g_snprintf(filename, 255, "/tmp/janus-audioroom-%"SCNu64".wav", audiobridge->room_id);
+			g_snprintf(filename, 255, "/tmp/janus-audioroom-%"SCNu64"-%s.wav", audiobridge->room_id, janus_rec_ts);
 		audiobridge->recording = fopen(filename, "wb");
 		if(audiobridge->recording == NULL) {
 			JANUS_LOG(LOG_WARN, "Recording requested, but could NOT open file %s for writing...\n", filename);
