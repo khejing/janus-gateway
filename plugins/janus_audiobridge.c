@@ -468,7 +468,7 @@ typedef struct janus_audiobridge_room {
 	gboolean record;			/* Whether this room has to be recorded or not */
 	gboolean record_to_file;	/* Whether to record to file */
 	gchar *record_file;			/* Path of the recording file */
-	FILE *recording;			/* File to record the room into */
+	FILE *recording_file;		/* File to record the room into */
 	gboolean record_to_tcp;		/* Whether to record to tcp server */
 	gchar *record_tcp_host;		/* Host address of recording server */
 	uint16_t record_tcp_port;	/* Port of recording server */
@@ -730,7 +730,7 @@ int janus_audiobridge_init(janus_callbacks *callback, const char *config_path) {
 				JANUS_LOG(LOG_WARN, "Configuration Error! Set default record to file as true when record is true\n");
 				audiobridge->record_to_file = TRUE;
 			}
-			audiobridge->recording = NULL;
+			audiobridge->recording_file = NULL;
 			audiobridge->recording_tcp = -1;
 			audiobridge->destroy = 0;
 			audiobridge->participants = g_hash_table_new(NULL, NULL);
@@ -1159,7 +1159,7 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 			JANUS_LOG(LOG_WARN, "Configuration Error! Set default record to file as true when record is true\n");
 			audiobridge->record_to_file = TRUE;
 		}
-		audiobridge->recording = NULL;
+		audiobridge->recording_file = NULL;
 		audiobridge->recording_tcp = -1;
 		audiobridge->destroy = 0;
 		audiobridge->participants = g_hash_table_new(NULL, NULL);
@@ -2427,8 +2427,8 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 				g_snprintf(filename, 255, "%s", audiobridge->record_file);
 			else
 				g_snprintf(filename, 255, "/tmp/janus-audioroom-%"SCNu64".wav", audiobridge->room_id);
-			audiobridge->recording = fopen(filename, "wb");
-			if(audiobridge->recording == NULL) {
+			audiobridge->recording_file = fopen(filename, "wb");
+			if(audiobridge->recording_file == NULL) {
 				JANUS_LOG(LOG_WARN, "Recording requested, but could NOT open file %s for writing...\n", filename);
 			} else {
 				JANUS_LOG(LOG_VERB, "Recording requested, opened file %s for writing\n", filename);
@@ -2469,8 +2469,8 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 			{'d', 'a', 't', 'a'},
 			0
 		};
-		if(audiobridge->recording != NULL){
-			if(fwrite(&header, 1, sizeof(header), audiobridge->recording) != sizeof(header)) {
+		if(audiobridge->recording_file != NULL){
+			if(fwrite(&header, 1, sizeof(header), audiobridge->recording_file) != sizeof(header)) {
 				JANUS_LOG(LOG_ERR, "Error writing WAV header...\n");
 			}
 		}
@@ -2570,8 +2570,8 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 				/* FIXME Smoothen/Normalize instead of truncating? */
 				outBuffer[i] = buffer[i];
 			}
-			if(audiobridge->recording != NULL)
-				fwrite(outBuffer, sizeof(opus_int16), samples, audiobridge->recording);
+			if(audiobridge->recording_file != NULL)
+				fwrite(outBuffer, sizeof(opus_int16), samples, audiobridge->recording_file);
 			if(audiobridge->recording_tcp != -1){
 				write(audiobridge->recording_tcp, outBuffer, sizeof(opus_int16) * samples);
 			}
@@ -2618,8 +2618,8 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 		}
 		g_list_free(participants_list);
 	}
-	if(audiobridge->recording)
-		fclose(audiobridge->recording);
+	if(audiobridge->recording_file)
+		fclose(audiobridge->recording_file);
 	if(audiobridge->recording_tcp != -1)
 		close(audiobridge->recording_tcp);
 	JANUS_LOG(LOG_VERB, "Leaving mixer thread for room %"SCNu64" (%s)...\n", audiobridge->room_id, audiobridge->room_name);
