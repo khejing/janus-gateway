@@ -39,5 +39,5 @@ Makefile.in
 .deps
 .dirstamp
 
-.project
 .cproject
+.project
