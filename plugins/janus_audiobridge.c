@@ -348,6 +348,8 @@ record_file =	/path/to/recording.wav (where to save the recording)
 #include <jansson.h>
 #include <opus/opus.h>
 #include <sys/time.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include "../debug.h"
 #include "../apierror.h"
@@ -464,8 +466,13 @@ typedef struct janus_audiobridge_room {
 	gboolean is_private;			/* Whether this room is 'private' (as in hidden) or not */
 	uint32_t sampling_rate;		/* Sampling rate of the mix (e.g., 16000 for wideband; can be 8, 12, 16, 24 or 48kHz) */
 	gboolean record;			/* Whether this room has to be recorded or not */
+	gboolean record_to_file;	/* Whether to record to file */
 	gchar *record_file;			/* Path of the recording file */
 	FILE *recording;			/* File to record the room into */
+	gboolean record_to_tcp;		/* Whether to record to tcp server */
+	gchar *record_tcp_host;		/* Host address of recording server */
+	uint16_t record_tcp_port;	/* Port of recording server */
+	gint recording_tcp;			/* socket fd to record the room into */
 	gboolean destroy;			/* Value to flag the room for destruction */
 	GHashTable *participants;	/* Map of participants */
 	GThread *thread;			/* Mixer thread for this room */
@@ -657,7 +664,11 @@ int janus_audiobridge_init(janus_callbacks *callback, const char *config_path) {
 			janus_config_item *sampling = janus_config_get_item(cat, "sampling_rate");
 			janus_config_item *secret = janus_config_get_item(cat, "secret");
 			janus_config_item *record = janus_config_get_item(cat, "record");
+			janus_config_item *rec2file = janus_config_get_item(cat, "record_to_file");
 			janus_config_item *recfile = janus_config_get_item(cat, "record_file");
+			janus_config_item *rec2tcp = janus_config_get_item(cat, "record_to_tcp");
+			janus_config_item *rectcphost = janus_config_get_item(cat, "record_tcp_host");
+			janus_config_item *rectcpport = janus_config_get_item(cat, "record_tcp_port");
 			if(sampling == NULL || sampling->value == NULL) {
 				JANUS_LOG(LOG_ERR, "Can't add the audio room, missing mandatory information...\n");
 				cat = cat->next;
@@ -703,9 +714,24 @@ int janus_audiobridge_init(janus_callbacks *callback, const char *config_path) {
 			audiobridge->record = FALSE;
 			if(record && record->value && janus_is_true(record->value))
 				audiobridge->record = TRUE;
+			if(rec2file && rec2file->value && janus_is_true(rec2file->value)){
+				audiobridge->record_to_file = TRUE;
+			}
 			if(recfile && recfile->value)
 				audiobridge->record_file = g_strdup(recfile->value);
+			if(rec2tcp && rec2tcp->value && janus_is_true(rec2tcp->value)){
+				audiobridge->record_to_tcp = TRUE;
+			}
+			if(rectcphost && rectcphost->value)
+				audiobridge->record_tcp_host = g_strdup(rectcphost->value);
+			if(rectcpport && rectcpport->value)
+				audiobridge->record_tcp_port = atoi(rectcphost->value);
+			if(audiobridge->record && !audiobridge->record_to_file && !audiobridge->record_to_tcp){
+				JANUS_LOG(LOG_WARN, "Configuration Error! Set default record to file as true when record is true\n");
+				audiobridge->record_to_file = TRUE;
+			}
 			audiobridge->recording = NULL;
+			audiobridge->recording_tcp = -1;
 			audiobridge->destroy = 0;
 			audiobridge->participants = g_hash_table_new(NULL, NULL);
 			audiobridge->destroyed = 0;
@@ -998,11 +1024,39 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 			g_snprintf(error_cause, 512, "Invalid value (record should be a boolean)");
 			goto error;
 		}
+		json_t *rec2file = json_object_get(root, "record_to_file");
+		if(rec2file && !json_is_boolean(rec2file)) {
+			JANUS_LOG(LOG_ERR, "Invalid element (record_to_file should be a boolean)\n");
+			error_code = JANUS_AUDIOBRIDGE_ERROR_INVALID_ELEMENT;
+			g_snprintf(error_cause, 512, "Invalid value (record_to_file should be a boolean)");
+			goto error;
+		}
 		json_t *recfile = json_object_get(root, "record_file");
 		if(recfile && !json_is_string(record)) {
 			JANUS_LOG(LOG_ERR, "Invalid element (record_file should be a string)\n");
 			error_code = JANUS_AUDIOBRIDGE_ERROR_INVALID_ELEMENT;
 			g_snprintf(error_cause, 512, "Invalid value (record_file should be a string)");
+			goto error;
+		}
+		json_t *rec2tcp = json_object_get(root, "record_to_tcp");
+		if(ref2tcp && !json_is_boolean(rec2tcp)) {
+			JANUS_LOG(LOG_ERR, "Invalid element (record_to_tcp should be a boolean)\n");
+			error_code = JANUS_AUDIOBRIDGE_ERROR_INVALID_ELEMENT;
+			g_snprintf(error_cause, 512, "Invalid value (record_to_tcp should be a boolean)");
+			goto error;
+		}
+		json_t *rectcphost = json_object_get(root, "record_tcp_host");
+		if(rectcphost && !json_is_string(rectcphost)) {
+			JANUS_LOG(LOG_ERR, "Invalid element (record_tcp_host should be a string)\n");
+			error_code = JANUS_AUDIOBRIDGE_ERROR_INVALID_ELEMENT;
+			g_snprintf(error_cause, 512, "Invalid value (record_tcp_host should be a string)");
+			goto error;
+		}
+		json_t *rectcpport = json_object_get(root, "record_tcp_port");
+		if(rectcpport && (!json_is_integer(rectcpport) || json_integer_value(rectcpport) < 0)) {
+			JANUS_LOG(LOG_ERR, "Invalid element (record_tcp_port should be a positive integer)\n");
+			error_code = JANUS_AUDIOBRIDGE_ERROR_INVALID_ELEMENT;
+			g_snprintf(error_cause, 512, "Invalid element (record_tcp_port should be a positive integer)");
 			goto error;
 		}
 		guint64 room_id = 0;
@@ -1091,9 +1145,22 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 		audiobridge->record = FALSE;
 		if(record && json_is_true(record))
 			audiobridge->record = TRUE;
+		if(rec2file && json_is_true(rec2file))
+			audiobridge->record_to_file = TRUE;
 		if(recfile)
 			audiobridge->record_file = g_strdup(json_string_value(recfile));
+		if(rec2tcp && json_is_true(rec2tcp))
+			audiobridge->record_to_tcp = TRUE;
+		if(rectcphost)
+			audiobridge->record_tcp_host = g_strdup(json_string_value(rectcphost));
+		if(rectcpport)
+			audiobridge->record_tcp_port = json_integer_value(rectcpport);;
+		if(audiobridge->record && !audiobridge->record_to_file && !audiobridge->record_to_tcp){
+			JANUS_LOG(LOG_WARN, "Configuration Error! Set default record to file as true when record is true\n");
+			audiobridge->record_to_file = TRUE;
+		}
 		audiobridge->recording = NULL;
+		audiobridge->recording_tcp = -1;
 		audiobridge->destroy = 0;
 		audiobridge->participants = g_hash_table_new(NULL, NULL);
 		audiobridge->destroyed = 0;
@@ -2354,34 +2421,62 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 
 	/* Do we need to record the mix? */
 	if(audiobridge->record) {
-		char filename[255];
-		if(audiobridge->record_file)
-			g_snprintf(filename, 255, "%s", audiobridge->record_file);
-		else
-			g_snprintf(filename, 255, "/tmp/janus-audioroom-%"SCNu64".wav", audiobridge->room_id);
-		audiobridge->recording = fopen(filename, "wb");
-		if(audiobridge->recording == NULL) {
-			JANUS_LOG(LOG_WARN, "Recording requested, but could NOT open file %s for writing...\n", filename);
-		} else {
-			JANUS_LOG(LOG_VERB, "Recording requested, opened file %s for writing\n", filename);
-			/* Write WAV header */
-			wav_header header = {
-				{'R', 'I', 'F', 'F'},
-				0,
-				{'W', 'A', 'V', 'E'},
-				{'f', 'm', 't', ' '},
-				16,
-				1,
-				1,
-				audiobridge->sampling_rate,
-				audiobridge->sampling_rate,
-				2,
-				16,
-				{'d', 'a', 't', 'a'},
-				0
-			};
+		if(audiobridge->record_to_file){
+			char filename[255];
+			if(audiobridge->record_file)
+				g_snprintf(filename, 255, "%s", audiobridge->record_file);
+			else
+				g_snprintf(filename, 255, "/tmp/janus-audioroom-%"SCNu64".wav", audiobridge->room_id);
+			audiobridge->recording = fopen(filename, "wb");
+			if(audiobridge->recording == NULL) {
+				JANUS_LOG(LOG_WARN, "Recording requested, but could NOT open file %s for writing...\n", filename);
+			} else {
+				JANUS_LOG(LOG_VERB, "Recording requested, opened file %s for writing\n", filename);
+			}
+		}
+		if(audiobridge->record_to_tcp){
+			struct sockaddr_in servaddr;
+			audiobridge->recording_tcp = socket(AF_INET, SOCK_STREAM, 0);
+			if(audiobridge->recording_tcp == -1){
+				JANUS_LOG(LOG_WARN, "Recording requested, but Error creating tcp socket\n");
+			} else {
+				memset(&servaddr, 0, sizeof(servaddr));
+				servaddr.sin_family = AF_INET;
+				servaddr.sin_addr.s_addr = inet_addr(audiobridge->record_tcp_host);
+				servaddr.sin_port = htons(audiobridge->record_tcp_port);
+				if(connect(audiobridge->recording_tcp, (struct sockaddr *)&servaddr, sizeof(servaddr)) == -1){
+					close(audiobridge->recording_tcp);
+					audiobridge->recording_tcp = -1;
+					JANUS_LOG(LOG_WARN, "Recording requested, but Error connecting tcp server\n");
+				} else {
+					JANUS_LOG(LOG_VERB, "Recording requested, opened socket %s %"SCNu32" for writing\n", audiobridge->record_tcp_host, audiobridge->record_tcp_port);
+				}
+			}
+		}
+		/* Write WAV header */
+		wav_header header = {
+			{'R', 'I', 'F', 'F'},
+			0,
+			{'W', 'A', 'V', 'E'},
+			{'f', 'm', 't', ' '},
+			16,
+			1,
+			1,
+			audiobridge->sampling_rate,
+			audiobridge->sampling_rate,
+			2,
+			16,
+			{'d', 'a', 't', 'a'},
+			0
+		};
+		if(audiobridge->recording != NULL){
 			if(fwrite(&header, 1, sizeof(header), audiobridge->recording) != sizeof(header)) {
 				JANUS_LOG(LOG_ERR, "Error writing WAV header...\n");
+			}
+		}
+		if(audiobridge->recording_tcp != -1){
+			if(write(audiobridge->recording_tcp, &header, sizeof(header)) != sizeof(header)) {
+				JANUS_LOG(LOG_ERR, "Error sending WAV header...\n");
 			}
 		}
 	}
@@ -2470,12 +2565,16 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 			ps = ps->next;
 		}
 		/* Are we recording the mix? (only do it if there's someone in, though...) */
-		if(audiobridge->recording != NULL && g_list_length(participants_list) > 0) {
+		if(audiobridge->record && g_list_length(participants_list) > 0) {
 			for(i=0; i<samples; i++) {
 				/* FIXME Smoothen/Normalize instead of truncating? */
 				outBuffer[i] = buffer[i];
 			}
-			fwrite(outBuffer, sizeof(opus_int16), samples, audiobridge->recording);
+			if(audiobridge->recording != NULL)
+				fwrite(outBuffer, sizeof(opus_int16), samples, audiobridge->recording);
+			if(audiobridge->recording_tcp != -1){
+				write(audiobridge->recording_tcp, outBuffer, sizeof(opus_int16) * samples);
+			}
 		}
 		/* Send proper packet to each participant (remove own contribution) */
 		ps = participants_list;
@@ -2521,6 +2620,8 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 	}
 	if(audiobridge->recording)
 		fclose(audiobridge->recording);
+	if(audiobridge->recording_tcp != -1)
+		close(audiobridge->recording_tcp);
 	JANUS_LOG(LOG_VERB, "Leaving mixer thread for room %"SCNu64" (%s)...\n", audiobridge->room_id, audiobridge->room_name);
 
 	/* Free resources */
