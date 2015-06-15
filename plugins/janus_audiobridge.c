@@ -733,8 +733,11 @@ int janus_audiobridge_init(janus_callbacks *callback, const char *config_path) {
 			}
 			if(rectcphost && rectcphost->value)
 				audiobridge->record_tcp_host = g_strdup(rectcphost->value);
-			if(rectcpport && rectcpport->value)
+			if(rectcpport && rectcpport->value){
+				JANUS_LOG(LOG_INFO, "port string is %s", rectcpport->value);
 				audiobridge->record_tcp_port = atoi(rectcphost->value);
+				JANUS_LOG(LOG_INFO, "port number value is %"SCNu16, audiobridge->record_tcp_port);
+			}
 			if(audiobridge->record && !audiobridge->record_to_file && !audiobridge->record_to_tcp){
 				JANUS_LOG(LOG_WARN, "Configuration Error! Set default record to file as true when record is true\n");
 				audiobridge->record_to_file = TRUE;
