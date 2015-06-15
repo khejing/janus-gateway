@@ -358,6 +358,7 @@ record_tcp_port = <port of tcp server to send the recording>
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <errno.h>
 
 #include "../debug.h"
 #include "../apierror.h"
@@ -2453,12 +2454,11 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 				servaddr.sin_family = AF_INET;
 				servaddr.sin_addr.s_addr = inet_addr(audiobridge->record_tcp_host);
 				servaddr.sin_port = htons(audiobridge->record_tcp_port);
-				int ret = connect(audiobridge->recording_tcp, (struct sockaddr *)&servaddr, sizeof(servaddr));
-				if(ret == -1){
+				if(connect(audiobridge->recording_tcp, (struct sockaddr *)&servaddr, sizeof(servaddr)) == -1){
+					JANUS_LOG(LOG_WARN, "Recording requested, but Error connecting tcp server %s %"SCNu16": %s\n",
+							audiobridge->record_tcp_host, audiobridge->record_tcp_port, strerror(errno));
 					close(audiobridge->recording_tcp);
 					audiobridge->recording_tcp = -1;
-					JANUS_LOG(LOG_WARN, "Recording requested, but Error connecting tcp server %s %"SCNu16": %s\n",
-							audiobridge->record_tcp_host, audiobridge->record_tcp_port, strerror(ret));
 				} else {
 					JANUS_LOG(LOG_VERB, "Recording requested, opened socket to tcp server %s %"SCNu16" for writing\n",
 							audiobridge->record_tcp_host, audiobridge->record_tcp_port);
