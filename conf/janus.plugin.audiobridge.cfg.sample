@@ -7,8 +7,8 @@
 ; record_to_file = true|false (whether recording to file, default=false)
 ; record_file = /path/to/recording.wav (where to save the recording)
 ; record_to_tcp = true|false (whether recording to tcp, default=false)
-; record_tcp_host = <ip address of tcp server> (host address to send the recording)
-; record_tcp_port = <port of tcp server> (port to send the recording)
+; record_tcp_host = <ip address of tcp server to send the recording>
+; record_tcp_port = <port of tcp server to send the recording>
 
 [1234]
 description = Demo Room
