@@ -2582,7 +2582,8 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 			if(audiobridge->recording_file != NULL)
 				fwrite(outBuffer, sizeof(opus_int16), samples, audiobridge->recording_file);
 			if(audiobridge->recording_tcp != -1){
-				write(audiobridge->recording_tcp, outBuffer, sizeof(opus_int16) * samples);
+				if(write(audiobridge->recording_tcp, outBuffer, sizeof(opus_int16) * samples) != sizeof(opus_int16) * samples)
+					JANUS_LOG(LOG_ERR, "Error sending audio buffer...\n");
 			}
 		}
 		/* Send proper packet to each participant (remove own contribution) */
