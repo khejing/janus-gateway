@@ -2457,10 +2457,10 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 				if(ret == -1){
 					close(audiobridge->recording_tcp);
 					audiobridge->recording_tcp = -1;
-					JANUS_LOG(LOG_WARN, "Recording requested, but Error connecting tcp server %s %"SCNu32": %s\n",
+					JANUS_LOG(LOG_WARN, "Recording requested, but Error connecting tcp server %s %"SCNu16": %s\n",
 							audiobridge->record_tcp_host, audiobridge->record_tcp_port, strerror(ret));
 				} else {
-					JANUS_LOG(LOG_VERB, "Recording requested, opened socket to tcp server %s %"SCNu32" for writing\n",
+					JANUS_LOG(LOG_VERB, "Recording requested, opened socket to tcp server %s %"SCNu16" for writing\n",
 							audiobridge->record_tcp_host, audiobridge->record_tcp_port);
 				}
 			}
