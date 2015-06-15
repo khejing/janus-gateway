@@ -26,7 +26,11 @@ is_private = yes|no (private rooms don't appear when you do a 'list' request)
 secret = <password needed for manipulating (e.g. destroying) the room>
 sampling_rate = <sampling rate> (e.g., 16000 for wideband mixing)
 record = true|false (whether this room should be recorded, default=false)
+record_to_file = true|false (whether recording to file, default=false)
 record_file =	/path/to/recording.wav (where to save the recording)
+record_to_tcp = true|false (whether recording to tcp, default=false)
+record_tcp_host = <ip address of tcp server to send the recording>
+record_tcp_port = <port of tcp server to send the recording>
 \endverbatim
  *
  * \section bridgeapi Audio Bridge API
@@ -69,7 +73,11 @@ record_file =	/path/to/recording.wav (where to save the recording)
 	"is_private" : <true|false, whether the room should appear in a list request>,
 	"sampling" : <sampling rate of the room, optional, 16000 by default>,
 	"record" : <true|false, whether to record the room or not, default false>,
+	"record_to_file" : <true|false, whether recording to file, default false>,
 	"record_file" : "</path/to/the/recording.wav, optional>",
+	"record_to_tcp" : <true|false, whether recording to tcp, default false>,
+	"record_tcp_host" : <ip address of tcp server to send the recording>,
+	"record_tcp_port" : <port of tcp server to send the recording>
 }
 \endverbatim
  *
