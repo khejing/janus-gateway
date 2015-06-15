@@ -1047,7 +1047,7 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 			goto error;
 		}
 		json_t *rec2tcp = json_object_get(root, "record_to_tcp");
-		if(ref2tcp && !json_is_boolean(rec2tcp)) {
+		if(rec2tcp && !json_is_boolean(rec2tcp)) {
 			JANUS_LOG(LOG_ERR, "Invalid element (record_to_tcp should be a boolean)\n");
 			error_code = JANUS_AUDIOBRIDGE_ERROR_INVALID_ELEMENT;
 			g_snprintf(error_cause, 512, "Invalid value (record_to_tcp should be a boolean)");
@@ -1186,6 +1186,7 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 			g_free(audiobridge->room_name);
 			g_free(audiobridge->room_secret);
 			g_free(audiobridge->record_file);
+			g_free(audiobridge->record_tcp_host);
 			g_hash_table_destroy(audiobridge->participants);
 			g_free(audiobridge);
 			goto error;
@@ -2658,6 +2659,7 @@ static void *janus_audiobridge_mixer_thread(void *data) {
 	g_free(audiobridge->room_name);
 	g_free(audiobridge->room_secret);
 	g_free(audiobridge->record_file);
+	g_free(audiobridge->record_tcp_host);
 	g_hash_table_destroy(audiobridge->participants);
 	g_free(audiobridge);
 
