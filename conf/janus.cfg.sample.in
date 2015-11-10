@@ -138,10 +138,10 @@ cert_key = @certdir@/mycert.key
 
 ; NAT-related stuff: specifically, you can either manually specify the 
 ; public address of the machine (i.e., what would be used in SDP) or
-; configure the STUN/TURN servers to use to gather candidates if the
-; gateway is behind a NAT, and srflx/relay candidates are needed. In
-; case STUN is not enough and this is needed (it shouldn't), you can 
-; also configure Janus to use a
+; configure the STUN/TURN
+; servers to use to gather candidates if the gateway is behind a NAT,
+; and srflx/relay candidates are needed. In case STUN is not enough and
+; this is needed (it shouldn't), you can also configure Janus to use a
 ; TURN server; please notice that this does NOT refer to TURN usage in
 ; browsers, but in the gathering of relay candidates by Janus itself,
 ; e.g., if you want to limit the ports used by a Janus instance on a
