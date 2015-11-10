@@ -40,4 +40,4 @@ option "rabbitmq-in-queue" t "Name of the RabbitMQ queue for incoming messages (
 option "rabbitmq-out-queue" f "Name of the RabbitMQ queue for outgoing messages (no default)" string typestr="string" optional
 option "enable-mqtt" e "Enable MQTT support" flag off
 option "mqtt-server" J "Address (host:port) of the MQTT server to use (default=localhost:1883)" string typestr="string" optional
-option "mqtt-in-topic" o "Name of the MQTT topic for incoming messages (no default)" string typestr="string" optional
+option "mqtt-in-topic" K "Name of the MQTT topic for incoming messages (no default)" string typestr="string" optional
