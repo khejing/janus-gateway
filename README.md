@@ -23,9 +23,9 @@ To install it, you'll need to satisfy the following dependencies:
 * [Jansson](http://www.digip.org/jansson/)
 * [libnice](http://nice.freedesktop.org/wiki/)
 * [OpenSSL](http://www.openssl.org/) (at least v1.0.1e)
-* [libsrtp](http://srtp.sourceforge.net/srtp.html)
+* [libsrtp](https://github.com/cisco/libsrtp) (at least v1.5 suggested)
 * [Sofia-SIP](http://sofia-sip.sourceforge.net/)
-* [usrsctp](http://code.google.com/p/sctp-refimpl/) (only needed if you
+* [usrsctp](https://github.com/sctplab/usrsctp) (only needed if you
 are interested in Data Channels)
 * [libwebsockets](https://libwebsockets.org/) (only needed if
 you are interested in WebSockets support)
@@ -65,16 +65,61 @@ On Ubuntu or Debian, it would require something like this:
 on Ubuntu or Debian, unless you're using a recent version (e.g., Ubuntu
 14.04 LTS). In that case, you'll have to [install it manually](http://www.opus-codec.org).
 
+If your distro ships a pre-1.5 version of libsrtp, it may be better to
+uninstall that version and [install 1.5 manually](https://github.com/cisco/libsrtp/releases).
+In fact, 1.4.x is known to cause several issues with WebRTC. Installation
+is quite straightforward:
+
+	wget https://github.com/cisco/libsrtp/archive/v1.5.0.tar.gz
+	tar xfv v1.5.0.tar.gz
+	cd libsrtp-1.5.0
+	./configure --prefix=/usr --enable-openssl
+	make libsrtp.so && sudo make install
+
+* *Note:* you may need to pass --libdir=/usr/lib64 to the configure
+script if you're installing on a x86_64 distribution.
+
+If you want to make use of BoringSSL instead of OpenSSL for any reason
+(read [here](https://github.com/meetecho/janus-gateway/issues/136) for
+some background on this), you'll have to manually install a specific
+version of the library to a specific location. Use the following steps:
+
+	git clone https://boringssl.googlesource.com/boringssl
+	cd boringssl
+	# We need a specific revision
+	git checkout 12fe1b25ead258858309d22ffa9e1f9a316358d7
+	# Don't barf on errors
+	sed -i s/" -Werror"//g CMakeLists.txt
+	# Build
+	mkdir -p build
+	cd build
+	cmake -DCMAKE_CXX_FLAGS="-lrt" ..
+	make
+	cd ..
+	# Install
+	sudo mkdir -p /opt/boringssl
+	sudo cp -R include /opt/boringssl/
+	sudo mkdir -p /opt/boringssl/lib
+	sudo cp build/ssl/libssl.a /opt/boringssl/lib/
+	sudo cp build/crypto/libcrypto.a /opt/boringssl/lib/
+
+Once the library is installed, you'll have to pass an additional
+```--enable-boringssl``` flag to the configure script, as by default
+Janus will be build assuming OpenSSL will be used. If you were using
+OpenSSL and want to switch to BoringSSL, make sure you also do a
+```make clean``` in the Janus folder before compiling with the new
+BoringSSL support.
+
 For what concerns usrsctp, which is needed for Data Channels support, it
 is usually not available in repositories, so if you're interested in
 them (support is optional) you'll have to install it manually. It is a
 pretty easy and standard process:
 
-	svn co http://sctp-refimpl.googlecode.com/svn/trunk/KERN/usrsctp usrsctp
+	git clone https://github.com/sctplab/usrsctp
 	cd usrsctp
 	./bootstrap
 	./configure --prefix=/usr && make && sudo make install
-	
+
 * *Note:* you may need to pass --libdir=/usr/lib64 to the configure
 script if you're installing on a x86_64 distribution.
 
@@ -89,7 +134,12 @@ HTTP REST API, you'll have to install it manually:
 	cd build
 	cmake -DCMAKE_INSTALL_PREFIX:PATH=/usr ..
 	make && sudo make install
-	
+
+* *Note:* if libwebsockets.org is unreachable for any reason, replace
+the first line with this:
+
+	git clone https://github.com/warmcat/libwebsockets.git
+
 Finally, the same can be said for rabbitmq-c as well, which is needed
 for the optional RabbitMQ support. In fact, several different versions
 of the library can be found, and the versions usually available in most
@@ -217,12 +267,18 @@ or on the command line:
 	-k, --cert-key=filename       HTTPS/DTLS certificate key
 	-S, --stun-server=filename    STUN server(:port) to use, if needed (e.g., 
 								  gateway behind NAT, default=none)
+	-1, --nat-1-1=ip              Public IP to put in all host candidates,
+                                  assuming a 1:1 NAT is in place (e.g., Amazon
+                                  EC2 instances, default=none)
+	-E, --ice-enforce-list=list   Comma-separated list of the only interfaces to
+                                  use for ICE gathering; partial strings are
+                                  supported (e.g., eth0 or eno1,wlan0,
+                                  default=none)
 	-X, --ice-ignore-list=list    Comma-separated list of interfaces or IP 
                                   addresses to ignore for ICE gathering; 
                                   partial strings are supported (e.g., 
                                   vmnet8,192.168.0.1,10.0.0.1 or 
                                   vmnet,192.168., default=vmnet)
-	-e, --public-ip=ipaddress     Public address of the machine, to use in SDP
 	-6, --ipv6-candidates         Whether to enable IPv6 candidates or not 
                                   (experimental)  (default=off)
 	-l, --libnice-debug           Whether to enable libnice debugging or not  
@@ -232,6 +288,11 @@ or on the command line:
 	-T, --ice-tcp                 Whether to enable ICE-TCP or not (warning: only
                                   works with ICE Lite)
                                   (default=off)
+	-U, --bundle                  Whether to force BUNDLE or not (whether audio, 
+                                  video and data will always be bundled)  
+                                  (default=off)
+	-u, --rtcp-mux                Whether to force rtcp-mux or not (whether RTP 
+                                  and RTCP will always be muxed)  (default=off)
 	-q, --max-nack-queue=number   Maximum size of the NACK queue per user for 
                                   retransmissions
 	-r, --rtp-port-range=min-max  Port range to use for RTP/RTCP (only available
@@ -239,10 +300,13 @@ or on the command line:
 	-d, --debug-level=1-7         Debug/logging level (0=disable debugging, 
                                   7=maximum debug level; default=4)
 	-D, --debug-timestamps        Enable debug/logging timestamps  (default=off)
+	-o, --disable-colors          Disable color in the logging  (default=off)
 	-a, --apisecret=randomstring  API secret all requests need to pass in order 
                                   to be accepted by Janus (useful when wrapping 
                                   Janus API requests in a server, none by 
                                   default)
+	-A, --token-auth              Enable token-based authentication for all
+                                  requests  (default=off)
 	-R, --enable-rabbitmq         Enable RabbitMQ support  (default=off)
 	-H, --rabbitmq-host=string    Address (host:port) of the RabbitMQ server to 
                                   use (default=localhost:5672)

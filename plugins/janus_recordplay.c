@@ -324,7 +324,7 @@ janus_plugin *create(void) {
 
 
 /* Useful stuff */
-static gint initialized = 0, stopping = 0;
+static volatile gint initialized = 0, stopping = 0;
 static janus_callbacks *gateway = NULL;
 static GThread *handler_thread;
 static GThread *watchdog;
@@ -360,8 +360,11 @@ typedef struct janus_recordplay_recording {
 	char *date;			/* Time of the recording */
 	char *arc_file;		/* Audio file name */
 	char *vrc_file;		/* Video file name */
+	GList *viewers;		/* List of users watching this recording */
+	gint64 destroyed;	/* Lazy timestamp to mark recordings as destroyed */
+	janus_mutex mutex;	/* Mutex for this recording */
 } janus_recordplay_recording;
-static GHashTable *recordings;
+static GHashTable *recordings = NULL;
 static janus_mutex recordings_mutex;
 
 typedef struct janus_recordplay_session {
@@ -380,7 +383,8 @@ typedef struct janus_recordplay_session {
 	guint video_keyframe_interval; /* keyframe request interval (ms) */
 	guint64 video_keyframe_request_last; /* timestamp of last keyframe request sent */
 	gint video_fir_seq;
-	guint64 destroyed;	/* Time at which this session was marked as destroyed */
+	volatile gint hangingup;
+	gint64 destroyed;	/* Time at which this session was marked as destroyed */
 } janus_recordplay_session;
 static GHashTable *sessions;
 static GList *old_sessions;
@@ -623,7 +627,7 @@ void janus_recordplay_create_session(janus_plugin_session *handle, int *error) {
 		*error = -1;
 		return;
 	}	
-	janus_recordplay_session *session = (janus_recordplay_session *)calloc(1, sizeof(janus_recordplay_session));
+	janus_recordplay_session *session = (janus_recordplay_session *)g_malloc0(sizeof(janus_recordplay_session));
 	if(session == NULL) {
 		JANUS_LOG(LOG_FATAL, "Memory error!\n");
 		*error = -2;
@@ -636,6 +640,7 @@ void janus_recordplay_create_session(janus_plugin_session *handle, int *error) {
 	session->arc = NULL;
 	session->vrc = NULL;
 	session->destroyed = 0;
+	g_atomic_int_set(&session->hangingup, 0);
 	session->video_remb_startup = 4;
 	session->video_remb_last = janus_get_monotonic_time();
 	session->video_bitrate = 1024 * 1024; 		/* This is 1mbps by default */
@@ -661,18 +666,15 @@ void janus_recordplay_destroy_session(janus_plugin_session *handle, int *error) 
 		*error = -2;
 		return;
 	}
-	if(session->destroyed) {
-		JANUS_LOG(LOG_WARN, "Record&Play session already destroyed...\n");
-		return;
+	janus_mutex_lock(&sessions_mutex);
+	if(!session->destroyed) {
+		JANUS_LOG(LOG_VERB, "Removing Record&Play session...\n");
+		janus_recordplay_hangup_media(handle);
+		session->destroyed = janus_get_monotonic_time();
+		g_hash_table_remove(sessions, handle);
+		/* Cleaning up and removing the session is done in a lazy way */
+		old_sessions = g_list_append(old_sessions, session);
 	}
-	JANUS_LOG(LOG_VERB, "Removing Record&Play session...\n");
-	janus_mutex_lock(&sessions_mutex);
-	g_hash_table_remove(sessions, handle);
-	janus_mutex_unlock(&sessions_mutex);
-	/* Cleaning up and removing the session is done in a lazy way */
-	session->destroyed = janus_get_monotonic_time();
-	janus_mutex_lock(&sessions_mutex);
-	old_sessions = g_list_append(old_sessions, session);
 	janus_mutex_unlock(&sessions_mutex);
 	return;
 }
@@ -826,7 +828,7 @@ struct janus_plugin_result *janus_recordplay_handle_message(janus_plugin_session
 	} else if(!strcasecmp(request_text, "record") || !strcasecmp(request_text, "play")
 			|| !strcasecmp(request_text, "start") || !strcasecmp(request_text, "stop")) {
 		/* These messages are handled asynchronously */
-		janus_recordplay_message *msg = calloc(1, sizeof(janus_recordplay_message));
+		janus_recordplay_message *msg = g_malloc0(sizeof(janus_recordplay_message));
 		if(msg == NULL) {
 			JANUS_LOG(LOG_FATAL, "Memory error!\n");
 			error_code = JANUS_RECORDPLAY_ERROR_UNKNOWN_ERROR;
@@ -906,6 +908,7 @@ void janus_recordplay_setup_media(janus_plugin_session *handle) {
 	}
 	if(session->destroyed)
 		return;
+	g_atomic_int_set(&session->hangingup, 0);
 	/* Take note of the fact that the session is now active */
 	session->active = TRUE;
 	if(!session->recorder) {
@@ -1041,10 +1044,10 @@ void janus_recordplay_hangup_media(janus_plugin_session *handle) {
 		JANUS_LOG(LOG_ERR, "No session associated with this handle...\n");
 		return;
 	}
-	if(session->destroyed)
-		return;
 	session->active = FALSE;
-	if(!session->recorder)
+	if(session->destroyed || !session->recorder)
+		return;
+	if(g_atomic_int_add(&session->hangingup, 1))
 		return;
 
 	/* Send an event to the browser and tell it's over */
@@ -1059,7 +1062,7 @@ void janus_recordplay_hangup_media(janus_plugin_session *handle) {
 	g_free(event_text);
 
 	/* FIXME Simulate a "stop" coming from the browser */
-	janus_recordplay_message *msg = calloc(1, sizeof(janus_recordplay_message));
+	janus_recordplay_message *msg = g_malloc0(sizeof(janus_recordplay_message));
 	msg->handle = handle;
 	msg->message = json_loads("{\"request\":\"stop\"}", 0, NULL);
 	msg->transaction = NULL;
@@ -1073,7 +1076,7 @@ static void *janus_recordplay_handler(void *data) {
 	JANUS_LOG(LOG_VERB, "Joining Record&Play handler thread\n");
 	janus_recordplay_message *msg = NULL;
 	int error_code = 0;
-	char *error_cause = calloc(512, sizeof(char));
+	char *error_cause = g_malloc0(512);
 	if(error_cause == NULL) {
 		JANUS_LOG(LOG_FATAL, "Memory error!\n");
 		return NULL;
@@ -1084,7 +1087,12 @@ static void *janus_recordplay_handler(void *data) {
 			usleep(50000);
 			continue;
 		}
-		janus_recordplay_session *session = (janus_recordplay_session *)msg->handle->plugin_handle;
+		janus_recordplay_session *session = NULL;
+		janus_mutex_lock(&sessions_mutex);
+		if(g_hash_table_lookup(sessions, msg->handle) != NULL ) {
+			session = (janus_recordplay_session *)msg->handle->plugin_handle;
+		}
+		janus_mutex_unlock(&sessions_mutex);
 		if(!session) {
 			JANUS_LOG(LOG_ERR, "No session associated with this handle...\n");
 			janus_recordplay_message_free(msg);
@@ -1169,9 +1177,12 @@ static void *janus_recordplay_handler(void *data) {
 				}
 			}
 			JANUS_LOG(LOG_VERB, "Starting new recording with ID %"SCNu64"\n", id);
-			janus_recordplay_recording *rec = (janus_recordplay_recording *)calloc(1, sizeof(janus_recordplay_recording));
+			janus_recordplay_recording *rec = (janus_recordplay_recording *)g_malloc0(sizeof(janus_recordplay_recording));
 			rec->id = id;
 			rec->name = g_strdup(name_text);
+			rec->viewers = NULL;
+			rec->destroyed = 0;
+			janus_mutex_init(&rec->mutex);
 			/* Create a date string */
 			time_t t = time(NULL);
 			struct tm *tmv = localtime(&t);
@@ -1231,8 +1242,8 @@ static void *janus_recordplay_handler(void *data) {
 				video_mline[0] = '\0';
 			}
 			g_snprintf(sdptemp, 1024, sdp_template,
-				janus_get_monotonic_time(),		/* We need current time here */
-				janus_get_monotonic_time(),		/* We need current time here */
+				janus_get_real_time(),			/* We need current time here */
+				janus_get_real_time(),			/* We need current time here */
 				session->recording->name,		/* Playout session */
 				audio_mline,					/* Audio m-line, if any */
 				video_mline);					/* Video m-line, if any */
@@ -1268,7 +1279,7 @@ static void *janus_recordplay_handler(void *data) {
 			janus_mutex_lock(&recordings_mutex);
 			janus_recordplay_recording *rec = g_hash_table_lookup(recordings, GINT_TO_POINTER(id_value));
 			janus_mutex_unlock(&recordings_mutex);
-			if(rec == NULL) {
+			if(rec == NULL || rec->destroyed) {
 				JANUS_LOG(LOG_ERR, "No such recording\n");
 				error_code = JANUS_RECORDPLAY_ERROR_NOT_FOUND;
 				g_snprintf(error_cause, 512, "No such recording");
@@ -1295,6 +1306,7 @@ static void *janus_recordplay_handler(void *data) {
 			}
 			session->recording = rec;
 			session->recorder = FALSE;
+			rec->viewers = g_list_append(rec->viewers, session);
 			/* We need to prepare an offer */
 			char sdptemp[1024], audio_mline[256], video_mline[512];
 			if(session->recording->arc_file) {
@@ -1318,8 +1330,8 @@ static void *janus_recordplay_handler(void *data) {
 				video_mline[0] = '\0';
 			}
 			g_snprintf(sdptemp, 1024, sdp_template,
-				janus_get_monotonic_time(),		/* We need current time here */
-				janus_get_monotonic_time(),		/* We need current time here */
+				janus_get_real_time(),			/* We need current time here */
+				janus_get_real_time(),			/* We need current time here */
 				session->recording->name,		/* Playout session */
 				audio_mline,					/* Audio m-line, if any */
 				video_mline);					/* Video m-line, if any */
@@ -1468,10 +1480,25 @@ void janus_recordplay_update_recordings_list(void) {
 		return;
 	JANUS_LOG(LOG_VERB, "Updating recordings list in %s\n", recordings_path);
 	janus_mutex_lock(&recordings_mutex);
+	/* First of all, let's keep track of which recordings are currently available */
+	GList *old_recordings = NULL;
+	if(recordings != NULL && g_hash_table_size(recordings) > 0) {
+		GHashTableIter iter;
+		gpointer value;
+		g_hash_table_iter_init(&iter, recordings);
+		while(g_hash_table_iter_next(&iter, NULL, &value)) {
+			janus_recordplay_recording *rec = value;
+			if(rec) {
+				old_recordings = g_list_append(old_recordings, GUINT_TO_POINTER(rec->id));
+			}
+		}
+		janus_mutex_unlock(&recordings_mutex);
+	}
 	/* Open dir */
 	DIR *dir = opendir(recordings_path);
 	if(!dir) {
 		JANUS_LOG(LOG_ERR, "Couldn't open folder...\n");
+		g_list_free(old_recordings);
 		return;
 	}
 	struct dirent *recent = NULL;
@@ -1502,21 +1529,28 @@ void janus_recordplay_update_recordings_list(void) {
 			janus_config_destroy(nfo);
 			continue;
 		}
+		if(g_hash_table_lookup(recordings, GUINT_TO_POINTER(id)) != NULL) {
+			JANUS_LOG(LOG_VERB, "Skipping recording with ID %"SCNu64", it's already in the list...\n", id);
+			janus_config_destroy(nfo);
+			/* Mark that we updated this recording */
+			old_recordings = g_list_remove(old_recordings, GUINT_TO_POINTER(id));
+			continue;
+		}
 		janus_config_item *name = janus_config_get_item(cat, "name");
 		janus_config_item *date = janus_config_get_item(cat, "date");
 		janus_config_item *audio = janus_config_get_item(cat, "audio");
 		janus_config_item *video = janus_config_get_item(cat, "video");
 		if(!name || !name->value || strlen(name->value) == 0 || !date || !date->value || strlen(date->value) == 0) {
-			JANUS_LOG(LOG_WARN, "Invalid info, skipping...\n");
+			JANUS_LOG(LOG_WARN, "Invalid info for recording %"SCNu64", skipping...\n", id);
 			janus_config_destroy(nfo);
 			continue;
 		}
 		if((!audio || !audio->value) && (!video || !video->value)) {
-			JANUS_LOG(LOG_WARN, "No audio and no video, skipping...\n");
+			JANUS_LOG(LOG_WARN, "No audio and no video in recording %"SCNu64", skipping...\n", id);
 			janus_config_destroy(nfo);
 			continue;
 		}
-		janus_recordplay_recording *rec = (janus_recordplay_recording *)calloc(1, sizeof(janus_recordplay_recording));
+		janus_recordplay_recording *rec = (janus_recordplay_recording *)g_malloc0(sizeof(janus_recordplay_recording));
 		rec->id = id;
 		rec->name = g_strdup(name->value);
 		rec->date = g_strdup(date->value);
@@ -1534,14 +1568,45 @@ void janus_recordplay_update_recordings_list(void) {
 				*ext = '\0';
 			}
 		}
+		rec->viewers = NULL;
+		rec->destroyed = 0;
+		janus_mutex_init(&rec->mutex);
 		
 		janus_config_destroy(nfo);
 
-		/* FIXME We should clean previous recordings with the same ID */
-		g_hash_table_remove(recordings, GUINT_TO_POINTER(id));
+		/* Add to the list of recordings */
 		g_hash_table_insert(recordings, GUINT_TO_POINTER(id), rec);
 	}
 	closedir(dir);
+	/* Now let's check if any of the previously existing recordings was removed */
+	if(old_recordings != NULL) {
+		while(old_recordings != NULL) {
+			guint64 id = GPOINTER_TO_UINT(old_recordings->data);
+			JANUS_LOG(LOG_VERB, "Recording %"SCNu64" is not available anymore, removing...\n", id);
+			janus_recordplay_recording *old_rec = g_hash_table_lookup(recordings, GUINT_TO_POINTER(id));
+			if(old_rec != NULL) {
+				/* Remove it */
+				g_hash_table_remove(recordings, GUINT_TO_POINTER(id));
+				/* Only destroy the object if no one's watching, though */
+				janus_mutex_lock(&old_rec->mutex);
+				old_rec->destroyed = janus_get_monotonic_time();
+				if(old_rec->viewers == NULL) {
+					JANUS_LOG(LOG_VERB, "Recording %"SCNu64" has no viewers, destroying it now\n", id);
+					janus_mutex_unlock(&old_rec->mutex);
+					g_free(old_rec->name);
+					g_free(old_rec->date);
+					g_free(old_rec->arc_file);
+					g_free(old_rec->vrc_file);
+					g_free(old_rec);
+				} else {
+					JANUS_LOG(LOG_VERB, "Recording %"SCNu64" still has viewers, delaying its destruction until later\n", id);
+					janus_mutex_unlock(&old_rec->mutex);
+				}
+			}
+			old_recordings = old_recordings->next;
+		}
+		g_list_free(old_recordings);
+	}
 	janus_mutex_unlock(&recordings_mutex);
 }
 
@@ -1566,6 +1631,7 @@ janus_recordplay_frame_packet *janus_recordplay_get_frames(const char *dir, cons
 
 	/* Pre-parse */
 	JANUS_LOG(LOG_VERB, "Pre-parsing file %s to generate ordered index...\n", source);
+	gboolean parsed_header = FALSE;
 	int bytes = 0;
 	long offset = 0;
 	uint16_t len = 0, count = 0;
@@ -1582,28 +1648,116 @@ janus_recordplay_frame_packet *janus_recordplay_get_frames(const char *dir, cons
 			fclose(file);
 			return NULL;
 		}
-		offset += 8;
-		bytes = fread(&len, sizeof(uint16_t), 1, file);
-		len = ntohs(len);
-		offset += 2;
-		if(len == 5) {
-			/* This is the main header */
-			bytes = fread(prebuffer, sizeof(char), 5, file);
-			if(prebuffer[0] == 'v') {
-				JANUS_LOG(LOG_VERB, "This is a video recording, assuming VP8\n");
-			} else if(prebuffer[0] == 'a') {
-				JANUS_LOG(LOG_VERB, "This is an audio recording, assuming Opus\n");
-			} else {
-				JANUS_LOG(LOG_ERR, "Unsupported recording media type...\n");
-				fclose(file);
-				return NULL;
+		if(prebuffer[1] == 'E') {
+			/* Either the old .mjr format header ('MEETECHO' header followed by 'audio' or 'video'), or a frame */
+			offset += 8;
+			bytes = fread(&len, sizeof(uint16_t), 1, file);
+			len = ntohs(len);
+			offset += 2;
+			if(len == 5 && !parsed_header) {
+				/* This is the main header */
+				parsed_header = TRUE;
+				JANUS_LOG(LOG_VERB, "Old .mjr header format\n");
+				bytes = fread(prebuffer, sizeof(char), 5, file);
+				if(prebuffer[0] == 'v') {
+					JANUS_LOG(LOG_INFO, "This is a video recording, assuming VP8\n");
+				} else if(prebuffer[0] == 'a') {
+					JANUS_LOG(LOG_INFO, "This is an audio recording, assuming Opus\n");
+				} else {
+					JANUS_LOG(LOG_WARN, "Unsupported recording media type...\n");
+					fclose(file);
+					return NULL;
+				}
+				offset += len;
+				continue;
+			} else if(len < 12) {
+				/* Not RTP, skip */
+				JANUS_LOG(LOG_VERB, "Skipping packet (not RTP?)\n");
+				offset += len;
+				continue;
 			}
-			offset += len;
-			continue;
-		} else if(len < 12) {
-			/* Not RTP, skip */
-			offset += len;
-			continue;
+		} else if(prebuffer[1] == 'J') {
+			/* New .mjr format, the header may contain useful info */
+			offset += 8;
+			bytes = fread(&len, sizeof(uint16_t), 1, file);
+			len = ntohs(len);
+			offset += 2;
+			if(len > 0 && !parsed_header) {
+				/* This is the info header */
+				JANUS_LOG(LOG_VERB, "New .mjr header format\n");
+				bytes = fread(prebuffer, sizeof(char), len, file);
+				parsed_header = TRUE;
+				prebuffer[len] = '\0';
+				json_error_t error;
+				json_t *info = json_loads(prebuffer, 0, &error);
+				if(!info) {
+					JANUS_LOG(LOG_ERR, "JSON error: on line %d: %s\n", error.line, error.text);
+					JANUS_LOG(LOG_WARN, "Error parsing info header...\n");
+					fclose(file);
+					return NULL;
+				}
+				/* Is it audio or video? */
+				json_t *type = json_object_get(info, "t");
+				if(!type || !json_is_string(type)) {
+					JANUS_LOG(LOG_WARN, "Missing/invalid recording type in info header...\n");
+					fclose(file);
+					return NULL;
+				}
+				const char *t = json_string_value(type);
+				int video = 0;
+				gint64 c_time = 0, w_time = 0;
+				if(!strcasecmp(t, "v")) {
+					video = 1;
+				} else if(!strcasecmp(t, "a")) {
+					video = 0;
+				} else {
+					JANUS_LOG(LOG_WARN, "Unsupported recording type '%s' in info header...\n", t);
+					fclose(file);
+					return NULL;
+				}
+				/* What codec was used? */
+				json_t *codec = json_object_get(info, "c");
+				if(!codec || !json_is_string(codec)) {
+					JANUS_LOG(LOG_WARN, "Missing recording codec in info header...\n");
+					fclose(file);
+					return NULL;
+				}
+				const char *c = json_string_value(codec);
+				if(video && strcasecmp(c, "vp8")) {
+					JANUS_LOG(LOG_WARN, "The post-processor only suupports VP8 video for now (was '%s')...\n", c);
+					fclose(file);
+					return NULL;
+				} else if(!video && strcasecmp(c, "opus")) {
+					JANUS_LOG(LOG_WARN, "The post-processor only suupports Opus audio for now (was '%s')...\n", c);
+					fclose(file);
+					return NULL;
+				}
+				/* When was the file created? */
+				json_t *created = json_object_get(info, "s");
+				if(!created || !json_is_integer(created)) {
+					JANUS_LOG(LOG_WARN, "Missing recording created time in info header...\n");
+					fclose(file);
+					return NULL;
+				}
+				c_time = json_integer_value(created);
+				/* When was the first frame written? */
+				json_t *written = json_object_get(info, "u");
+				if(!written || !json_is_integer(written)) {
+					JANUS_LOG(LOG_WARN, "Missing recording written time in info header...\n");
+					fclose(file);
+					return NULL;
+				}
+				w_time = json_integer_value(created);
+				/* Summary */
+				JANUS_LOG(LOG_VERB, "This is %s recording:\n", video ? "a video" : "an audio");
+				JANUS_LOG(LOG_VERB, "  -- Codec:   %s\n", c);
+				JANUS_LOG(LOG_VERB, "  -- Created: %"SCNi64"\n", c_time);
+				JANUS_LOG(LOG_VERB, "  -- Written: %"SCNi64"\n", w_time);
+			}
+		} else {
+			JANUS_LOG(LOG_ERR, "Invalid header...\n");
+			fclose(file);
+			return NULL;
 		}
 		/* Only read RTP header */
 		bytes = fread(prebuffer, sizeof(char), 16, file);
@@ -1642,7 +1796,7 @@ janus_recordplay_frame_packet *janus_recordplay_get_frames(const char *dir, cons
 		len = ntohs(len);
 		JANUS_LOG(LOG_HUGE, "  -- Length: %"SCNu16"\n", len);
 		offset += 2;
-		if(len < 12) {
+		if(prebuffer[1] == 'J' || len < 12) {
 			/* Not RTP, skip */
 			JANUS_LOG(LOG_HUGE, "  -- Not RTP, skipping\n");
 			offset += len;
@@ -1654,7 +1808,7 @@ janus_recordplay_frame_packet *janus_recordplay_get_frames(const char *dir, cons
 		JANUS_LOG(LOG_HUGE, "  -- RTP packet (ssrc=%"SCNu32", pt=%"SCNu16", ext=%"SCNu16", seq=%"SCNu16", ts=%"SCNu32")\n",
 				ntohl(rtp->ssrc), rtp->type, rtp->extension, ntohs(rtp->seq_number), ntohl(rtp->timestamp));
 		/* Generate frame packet and insert in the ordered list */
-		janus_recordplay_frame_packet *p = calloc(1, sizeof(janus_recordplay_frame_packet));
+		janus_recordplay_frame_packet *p = g_malloc0(sizeof(janus_recordplay_frame_packet));
 		if(p == NULL) {
 			JANUS_LOG(LOG_ERR, "Memory error!\n");
 			fclose(file);
@@ -1824,12 +1978,12 @@ static void *janus_recordplay_playout_thread(void *data) {
 	gettimeofday(&vbefore, NULL);
 
 	janus_recordplay_frame_packet *audio = session->aframes, *video = session->vframes;
-	char *buffer = (char *)calloc(1500, sizeof(char));
+	char *buffer = (char *)g_malloc0(1500);
 	memset(buffer, 0, 1500);
 	int bytes = 0;
 	int64_t ts_diff = 0, passed = 0;
 	
-	while(!session->destroyed && session->active && (audio || video)) {
+	while(!session->destroyed && session->active && !session->recording->destroyed && (audio || video)) {
 		if(!asent && !vsent) {
 			/* We skipped the last round, so sleep a bit (5ms) */
 			usleep(5000);
@@ -1986,6 +2140,27 @@ static void *janus_recordplay_playout_thread(void *data) {
 	if(vfile)
 		fclose(vfile);
 	vfile = NULL;
+
+	if(session->recording->destroyed) {
+		/* Remove from the list of viewers */
+		janus_mutex_lock(&session->recording->mutex);
+		session->recording->viewers = g_list_remove(session->recording->viewers, session);
+		if(session->recording->viewers == NULL) {
+			/* This was the last viewer, destroying the recording */
+			JANUS_LOG(LOG_VERB, "Last viewer stopped playout of recording %"SCNu64", destroying it now\n", session->recording->id);
+			janus_mutex_unlock(&session->recording->mutex);
+			g_free(session->recording->name);
+			g_free(session->recording->date);
+			g_free(session->recording->arc_file);
+			g_free(session->recording->vrc_file);
+			g_free(session->recording);
+			session->recording = NULL;
+		} else {
+			/* Other viewers still on, don't do anything */
+			JANUS_LOG(LOG_VERB, "Recording %"SCNu64" still has viewers, delaying its destruction until later\n", session->recording->id);
+			janus_mutex_unlock(&session->recording->mutex);
+		}
+	}
 
 	/* Tell the core to tear down the PeerConnection, hangup_media will do the rest */
 	gateway->close_pc(session->handle);

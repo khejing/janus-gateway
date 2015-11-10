@@ -53,14 +53,15 @@ var sipcall = null;
 var started = false;
 var spinner = null;
 
+var selectedApproach = null;
 var registered = false;
 
 var incoming = null;
 
 
 $(document).ready(function() {
-	// Initialize the library (console debug enabled)
-	Janus.init({debug: true, callback: function() {
+	// Initialize the library (all console debuggers enabled)
+	Janus.init({debug: "all", callback: function() {
 		// Use a button to start the demo
 		$('#start').click(function() {
 			if(started)
@@ -84,10 +85,33 @@ $(document).ready(function() {
 								success: function(pluginHandle) {
 									$('#details').remove();
 									sipcall = pluginHandle;
-									console.log("Plugin attached! (" + sipcall.getPlugin() + ", id=" + sipcall.getId() + ")");
+									Janus.log("Plugin attached! (" + sipcall.getPlugin() + ", id=" + sipcall.getId() + ")");
 									// Prepare the username registration
 									$('#sipcall').removeClass('hide').show();
 									$('#login').removeClass('hide').show();
+									$('#registerlist a').unbind('click').click(function() {
+										selectedApproach = $(this).attr("id");
+										$('#registerset').html($(this).html()).parent().removeClass('open');
+										if(selectedApproach === "guest") {
+											$('#password').empty().attr('disabled', true);
+										} else {
+											$('#password').removeAttr('disabled');
+										}
+										switch(selectedApproach) {
+											case "secret":
+												bootbox.alert("Using this approach you'll provide a plain secret to REGISTER");
+												break;
+											case "ha1secret":
+												bootbox.alert("Using this approach might not work with Asterisk because the generated HA1 secret could have the wrong realm");
+												break;
+											case "guest":
+												bootbox.alert("Using this approach you'll try to REGISTER as a guest, that is without providing any secret");
+												break;
+											default:
+												break;
+										}
+										return false;
+									});
 									$('#register').click(registerUsername);
 									$('#server').focus();
 									$('#start').removeAttr('disabled').html("Stop")
@@ -95,22 +119,13 @@ $(document).ready(function() {
 											$(this).attr('disabled', true);
 											janus.destroy();
 										});
-									$('#guest').change(function() {
-										if($('#guest').is(':checked')) {
-											//~ $('#username').empty().attr('disabled', true);
-											$('#password').empty().attr('disabled', true);
-										} else {
-											//~ $('#username').removeAttr('disabled');
-											$('#password').removeAttr('disabled');
-										}
-									});
 								},
 								error: function(error) {
-									console.log("  -- Error attaching plugin... " + error);
+									Janus.error("  -- Error attaching plugin...", error);
 									bootbox.alert("  -- Error attaching plugin... " + error);
 								},
 								consentDialog: function(on) {
-									console.log("Consent dialog should be " + (on ? "on" : "off") + " now");
+									Janus.debug("Consent dialog should be " + (on ? "on" : "off") + " now");
 									if(on) {
 										// Darken screen and show hint
 										$.blockUI({ 
@@ -129,8 +144,8 @@ $(document).ready(function() {
 									}
 								},
 								onmessage: function(msg, jsep) {
-									console.log(" ::: Got a message :::");
-									console.log(JSON.stringify(msg));
+									Janus.debug(" ::: Got a message :::");
+									Janus.debug(JSON.stringify(msg));
 									// Any error?
 									var error = msg["error"];
 									if(error != null && error != undefined) {
@@ -139,7 +154,7 @@ $(document).ready(function() {
 											$('#username').removeAttr('disabled');
 											$('#password').removeAttr('disabled');
 											$('#register').removeAttr('disabled').click(registerUsername);
-											$('#guest').removeAttr('disabled').attr('checked', false);
+											$('#registerset').removeAttr('disabled');
 										}
 										bootbox.alert(error);
 										return;
@@ -147,8 +162,18 @@ $(document).ready(function() {
 									var result = msg["result"];
 									if(result !== null && result !== undefined && result["event"] !== undefined && result["event"] !== null) {
 										var event = result["event"];
+										if(event === 'registration_failed') {
+											Janus.warn("Registration failed: " + result["code"] + " " + result["reason"]);
+											$('#server').removeAttr('disabled');
+											$('#username').removeAttr('disabled');
+											$('#password').removeAttr('disabled');
+											$('#register').removeAttr('disabled').click(registerUsername);
+											$('#registerset').removeAttr('disabled');
+											bootbox.alert(result["code"] + " " + result["reason"]);
+											return;
+										}
 										if(event === 'registered') {
-											console.log("Successfully registered as " + result["username"] + "!");
+											Janus.log("Successfully registered as " + result["username"] + "!");
 											$('#you').removeClass('hide').show().text("Registered as '" + result["username"] + "'");
 											// TODO Enable buttons to call now
 											if(!registered) {
@@ -158,17 +183,20 @@ $(document).ready(function() {
 												$('#peer').focus();
 											}
 										} else if(event === 'calling') {
-											console.log("Waiting for the peer to answer...");
+											Janus.log("Waiting for the peer to answer...");
 											// TODO Any ringtone?
+											$('#call').removeAttr('disabled').html('Hangup')
+												  .removeClass("btn-success").addClass("btn-danger")
+												  .unbind('click').click(doHangup);
 										} else if(event === 'incomingcall') {
-											console.log("Incoming call from " + result["username"] + "!");
+											Janus.log("Incoming call from " + result["username"] + "!");
 											var doAudio = true, doVideo = true;
 											if(jsep !== null && jsep !== undefined) {
 												// What has been negotiated?
 												doAudio = (jsep.sdp.indexOf("m=audio ") > -1);
 												doVideo = (jsep.sdp.indexOf("m=video ") > -1);
-												console.log("Audio " + (doAudio ? "has" : "has NOT") + " been negotiated");
-												console.log("Video " + (doVideo ? "has" : "has NOT") + " been negotiated");
+												Janus.debug("Audio " + (doAudio ? "has" : "has NOT") + " been negotiated");
+												Janus.debug("Video " + (doVideo ? "has" : "has NOT") + " been negotiated");
 											}
 											// Notify user
 											bootbox.hideAll();
@@ -188,8 +216,8 @@ $(document).ready(function() {
 																	jsep: jsep,
 																	media: { audio: doAudio, video: doVideo },
 																	success: function(jsep) {
-																		console.log("Got SDP! audio=" + doAudio + ", video=" + doVideo);
-																		console.log(jsep);
+																		Janus.debug("Got SDP! audio=" + doAudio + ", video=" + doVideo);
+																		Janus.debug(jsep);
 																		var body = { "request": "accept" };
 																		sipcall.send({"message": body, "jsep": jsep});
 																		$('#call').removeAttr('disabled').html('Hangup')
@@ -197,11 +225,10 @@ $(document).ready(function() {
 																			.unbind('click').click(doHangup);
 																	},
 																	error: function(error) {
-																		console.log("WebRTC error:");
-																		console.log(error);
+																		Janus.error("WebRTC error:", error);
 																		bootbox.alert("WebRTC error... " + JSON.stringify(error));
-																		// Don't keep the caller waiting any longer
-																		var body = { "request": "decline" };
+																		// Don't keep the caller waiting any longer, but use a 480 instead of the default 486 to clarify the cause
+																		var body = { "request": "decline", "code": 480 };
 																		sipcall.send({"message": body});
 																	}
 																});
@@ -219,21 +246,18 @@ $(document).ready(function() {
 												}
 											});											
 										} else if(event === 'accepted') {
-											console.log(result["username"] + " accepted the call!");
+											Janus.log(result["username"] + " accepted the call!");
 											// TODO Video call can start
 											if(jsep !== null && jsep !== undefined) {
 												sipcall.handleRemoteJsep({jsep: jsep, error: doHangup });
 											}
-											$('#call').removeAttr('disabled').html('Hangup')
-												.removeClass("btn-success").addClass("btn-danger")
-												.unbind('click').click(doHangup);
 										} else if(event === 'hangup') {
 											if(incoming != null) {
 												incoming.modal('hide');
 												incoming = null;
 											}
-											console.log("Call hung up by " + result["username"] + " (" + result["reason"] + ")!");
-											bootbox.alert(result["reason"]);
+											Janus.log("Call hung up (" + result["code"] + " " + result["reason"] + ")!");
+											bootbox.alert(result["code"] + " " + result["reason"]);
 											// Reset status
 											sipcall.hangup();
 											$('#dovideo').removeAttr('disabled').val('');
@@ -245,8 +269,8 @@ $(document).ready(function() {
 									}
 								},
 								onlocalstream: function(stream) {
-									console.log(" ::: Got a local stream :::");
-									console.log(JSON.stringify(stream));
+									Janus.debug(" ::: Got a local stream :::");
+									Janus.debug(JSON.stringify(stream));
 									$('#videos').removeClass('hide').show();
 									if($('#myvideo').length === 0)
 										$('#videoleft').append('<video class="rounded centered" id="myvideo" width=320 height=240 autoplay muted="muted"/>');
@@ -272,8 +296,8 @@ $(document).ready(function() {
 									}
 								},
 								onremotestream: function(stream) {
-									console.log(" ::: Got a remote stream :::");
-									console.log(JSON.stringify(stream));
+									Janus.debug(" ::: Got a remote stream :::");
+									Janus.debug(JSON.stringify(stream));
 									if($('#remotevideo').length === 0) {
 										$('#videoright').parent().find('h3').html(
 											'Send DTMF: <span id="dtmf" class="btn-group btn-group-xs"></span>');
@@ -313,17 +337,18 @@ $(document).ready(function() {
 									}
 								},
 								oncleanup: function() {
-									console.log(" ::: Got a cleanup notification :::");
+									Janus.log(" ::: Got a cleanup notification :::");
 									$('#myvideo').remove();
 									$('#waitingvideo').remove();
 									$('#remotevideo').remove();
+									$('.no-video-container').remove();
 									$('#videos').hide();
 									$('#dtmf').parent().html("Remote UA");
 								}
 							});
 					},
 					error: function(error) {
-						console.log(error);
+						Janus.error(error);
 						bootbox.alert(error, function() {
 							window.location.reload();
 						});
@@ -350,12 +375,16 @@ function checkEnter(field, event) {
 }
 
 function registerUsername() {
+	if(selectedApproach === null || selectedApproach === undefined) {
+		bootbox.alert("Please select a registration approach from the dropdown menu");
+		return;
+	}
 	// Try a registration
 	$('#server').attr('disabled', true);
 	$('#username').attr('disabled', true);
 	$('#password').attr('disabled', true);
 	$('#register').attr('disabled', true).unbind('click');
-	$('#guest').attr('disabled', true);
+	$('#registerset').attr('disabled', true);
 	var sipserver = $('#server').val();
 	if(sipserver !== "" && sipserver.indexOf("sip:") != 0 && sipserver.indexOf("sips:") !=0) {
 		bootbox.alert("Please insert a valid SIP server (e.g., sip:192.168.0.1:5060)");
@@ -363,10 +392,10 @@ function registerUsername() {
 		$('#username').removeAttr('disabled');
 		$('#password').removeAttr('disabled');
 		$('#register').removeAttr('disabled').click(registerUsername);
-		$('#guest').removeAttr('disabled').attr('checked', false);
+		$('#registerset').removeAttr('disabled');
 		return;
 	}
-	if($('#guest').is(':checked')) {
+	if(selectedApproach === "guest") {
 		// We're registering as guests, no username/secret provided
 		var register = {
 			"request" : "register",
@@ -381,7 +410,7 @@ function registerUsername() {
 				$('#server').removeAttr('disabled');
 				$('#username').removeAttr('disabled');
 				$('#register').removeAttr('disabled').click(registerUsername);
-				$('#guest').removeAttr('disabled');
+				$('#registerset').removeAttr('disabled');
 				return;
 			}
 			register.username = username;
@@ -395,7 +424,7 @@ function registerUsername() {
 						$('#server').removeAttr('disabled');
 						$('#username').removeAttr('disabled');
 						$('#register').removeAttr('disabled').click(registerUsername);
-						$('#guest').removeAttr('disabled');
+						$('#registerset').removeAttr('disabled');
 					}
 				}); 
 		} else {
@@ -410,7 +439,7 @@ function registerUsername() {
 		$('#username').removeAttr('disabled');
 		$('#password').removeAttr('disabled');
 		$('#register').removeAttr('disabled').click(registerUsername);
-		$('#guest').removeAttr('disabled');
+		$('#registerset').removeAttr('disabled');
 		return;
 	}
 	var password = $('#password').val();
@@ -420,14 +449,21 @@ function registerUsername() {
 		$('#username').removeAttr('disabled');
 		$('#password').removeAttr('disabled');
 		$('#register').removeAttr('disabled').click(registerUsername);
-		$('#guest').removeAttr('disabled');
+		$('#registerset').removeAttr('disabled');
 		return;
 	}
 	var register = {
 		"request" : "register",
-		"username" : username,
-		"secret" : password
+		"username" : username
 	};
+	if(selectedApproach === "secret") {
+		// Use the plain secret
+		register["secret"] = password;
+	} else if(selectedApproach === "ha1secret") {
+		var sip_user = username.substring(4, username.indexOf('@'));    /* skip sip: */
+		var sip_domain = username.substring(username.indexOf('@')+1);
+		register["ha1_secret"] = md5(sip_user+':'+sip_domain+':'+password);
+	}
 	if(sipserver === "") {
 		bootbox.confirm("You didn't specify a SIP Proxy to use: this will cause the plugin to try and conduct a standard (<a href='https://tools.ietf.org/html/rfc3263' target='_blank'>RFC3263</a>) lookup. If this is not what you want or you don't know what this means, hit Cancel and provide a SIP proxy instead'",
 			function(result) {
@@ -438,7 +474,7 @@ function registerUsername() {
 					$('#username').removeAttr('disabled');
 					$('#password').removeAttr('disabled');
 					$('#register').removeAttr('disabled').click(registerUsername);
-					$('#guest').removeAttr('disabled');
+					$('#registerset').removeAttr('disabled');
 				}
 			}); 
 	} else {
@@ -469,7 +505,7 @@ function doCall() {
 	}
 	// Call this URI
 	doVideo = $('#dovideo').is(':checked');
-	console.log("This is a SIP " + (doVideo ? "video" : "audio") + " call (dovideo=" + doVideo + ")"); 
+	Janus.log("This is a SIP " + (doVideo ? "video" : "audio") + " call (dovideo=" + doVideo + ")"); 
 	sipcall.createOffer(
 		{
 			media: {
@@ -477,14 +513,13 @@ function doCall() {
 				videoSend: doVideo, videoRecv: doVideo	// We MAY want video
 			},
 			success: function(jsep) {
-				console.log("Got SDP!");
-				console.log(jsep);
+				Janus.debug("Got SDP!");
+				Janus.debug(jsep);
 				var body = { "request": "call", uri: $('#peer').val() };
 				sipcall.send({"message": body, "jsep": jsep});
 			},
 			error: function(error) {
-				console.log("WebRTC error...");
-				console.log(error);
+				Janus.error("WebRTC error...", error);
 				bootbox.alert("WebRTC error... " + JSON.stringify(error));
 			}
 		});

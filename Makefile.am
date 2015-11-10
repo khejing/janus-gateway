@@ -70,6 +70,8 @@ CLEANFILES += conf/janus.cfg.sample
 janus_SOURCES = \
 	apierror.c \
 	apierror.h \
+	auth.c \
+	auth.h \
 	cmdline.c \
 	cmdline.h \
 	config.c \
@@ -106,9 +108,11 @@ janus_CFLAGS = \
 	$(JANUS_CFLAGS) \
 	-DPLUGINDIR=\"$(plugindir)\" \
 	-DCONFDIR=\"$(confdir)\" \
+	$(BORINGSSL_CFLAGS) \
 	$(NULL)
 
 janus_LDADD = \
+	$(BORINGSSL_LIBS) \
 	$(JANUS_LIBS) \
 	$(JANUS_MANUAL_LIBS) \
 	-lsrtp \
@@ -240,6 +244,7 @@ bin_PROGRAMS += janus-pp-rec
 janus_pp_rec_SOURCES = \
 	postprocessing/pp-opus.c \
 	postprocessing/pp-opus.h \
+	postprocessing/pp-opus-silence.h \
 	postprocessing/pp-rtp.h \
 	postprocessing/pp-webm.c \
 	postprocessing/pp-webm.h \
@@ -271,3 +276,10 @@ endif
 configs:
 	$(MKDIR_P) $(DESTDIR)$(confdir)
 	$(foreach config,$(conf_DATA),cp "$(CURDIR)/$(config)" "$(DESTDIR)$(confdir)/$(notdir $(basename $(config) .sample))";)
+
+##
+# Extra cleanup
+##
+
+clean-local:
+	-rm -f docs/doxygen_sqlite3.db
