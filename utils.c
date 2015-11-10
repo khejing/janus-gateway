@@ -16,7 +16,6 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
 
 #include "utils.h"
 #include "debug.h"
@@ -28,6 +27,12 @@
 gint64 janus_get_monotonic_time(void) {
 	struct timespec ts;
 	clock_gettime (CLOCK_MONOTONIC, &ts);
+	return (ts.tv_sec*G_GINT64_CONSTANT(1000000)) + (ts.tv_nsec/G_GINT64_CONSTANT(1000));
+}
+
+gint64 janus_get_real_time(void) {
+	struct timespec ts;
+	clock_gettime (CLOCK_REALTIME, &ts);
 	return (ts.tv_sec*G_GINT64_CONSTANT(1000000)) + (ts.tv_nsec/G_GINT64_CONSTANT(1000));
 }
 
@@ -43,10 +48,10 @@ gboolean janus_strcmp_const_time(const void *str1, const void *str2) {
 	size_t maxlen = strlen((char *)string1);
 	if(strlen((char *)string2) > maxlen)
 		maxlen = strlen((char *)string2);
-	unsigned char *buf1 = calloc(maxlen+1, sizeof(unsigned char));
+	unsigned char *buf1 = g_malloc0(maxlen+1);
 	memset(buf1, 0, maxlen);
 	memcpy(buf1, string1, strlen(str1));
-	unsigned char *buf2 = calloc(maxlen+1, sizeof(unsigned char));
+	unsigned char *buf2 = g_malloc0(maxlen+1);
 	memset(buf2, 0, maxlen);
 	memcpy(buf2, string2, strlen(str2));
 	unsigned char result = 0;
@@ -86,7 +91,7 @@ gboolean janus_flags_is_set(janus_flags *flags, uint32_t flag) {
 	return FALSE;
 }
 
-/* Easy way to replace multiple occurrences of a string with another: ALWAYS creates a NEW string */
+/* Easy way to replace multiple occurrences of a string with another */
 char *janus_string_replace(char *message, const char *old_string, const char *new_string)
 {
 	if(!message || !old_string || !new_string)
@@ -111,8 +116,8 @@ char *janus_string_replace(char *message, const char *old_string, const char *ne
 		}
 		return outgoing;
 	} else {	/* We need to resize */
-		char *outgoing = strdup(message);
-		free(message);
+		char *outgoing = g_strdup(message);
+		g_free(message);
 		if(outgoing == NULL) {
 			return NULL;
 		}
@@ -128,9 +133,9 @@ char *janus_string_replace(char *message, const char *old_string, const char *ne
 		}
 		uint16_t old_stringlen = strlen(outgoing)+1, new_stringlen = old_stringlen + diff*counter;
 		if(diff > 0) {	/* Resize now */
-			tmp = realloc(outgoing, new_stringlen);
+			tmp = g_realloc(outgoing, new_stringlen);
 			if(!tmp) {
-				free(outgoing);
+				g_free(outgoing);
 				return NULL;
 			}
 			outgoing = tmp;
@@ -154,9 +159,9 @@ char *janus_string_replace(char *message, const char *old_string, const char *ne
 			pos = tmp;
 		}
 		if(diff < 0) {	/* We skipped the resize previously (shrinking memory) */
-			tmp = realloc(outgoing, new_stringlen);
+			tmp = g_realloc(outgoing, new_stringlen);
 			if(!tmp) {
-				free(outgoing);
+				g_free(outgoing);
 				return NULL;
 			}
 			outgoing = tmp;
@@ -196,8 +201,8 @@ int janus_mkdir(const char *dir, mode_t mode) {
 int janus_get_opus_pt(const char *sdp) {
 	if(!sdp)
 		return -1;
-	if(!strstr(sdp, "m=audio") || !strstr(sdp, "opus/48000"))	/* FIXME Should be case insensitive */
-		return -1;
+	if(!strstr(sdp, "m=audio") || (!strstr(sdp, "opus/48000") && !strstr(sdp, "OPUS/48000")))
+		return -2;
 	const char *line = strstr(sdp, "m=audio");
 	while(line) {
 		char *next = strchr(line, '\n');
@@ -210,19 +215,26 @@ int janus_get_opus_pt(const char *sdp) {
 					*next = '\n';
 					return pt;
 				}
+			} else if(strstr(line, "a=rtpmap") && strstr(line, "OPUS/48000")) {
+				/* Gotcha! */
+				int pt = 0;
+				if(sscanf(line, "a=rtpmap:%d OPUS/48000/2", &pt) == 1) {
+					*next = '\n';
+					return pt;
+				}
 			}
 			*next = '\n';
 		}
 		line = next ? (next+1) : NULL;
 	}
-	return -1;
+	return -3;
 }
 
 int janus_get_vp8_pt(const char *sdp) {
 	if(!sdp)
 		return -1;
-	if(!strstr(sdp, "m=video") || !strstr(sdp, "VP8/90000"))	/* FIXME Should be case insensitive */
-		return -1;
+	if(!strstr(sdp, "m=video") || (!strstr(sdp, "VP8/90000") && !strstr(sdp, "vp8/90000")))
+		return -2;
 	const char *line = strstr(sdp, "m=video");
 	while(line) {
 		char *next = strchr(line, '\n');
@@ -235,12 +247,19 @@ int janus_get_vp8_pt(const char *sdp) {
 					*next = '\n';
 					return pt;
 				}
+			} else if(strstr(line, "a=rtpmap") && strstr(line, "vp8/90000")) {
+				/* Gotcha! */
+				int pt = 0;
+				if(sscanf(line, "a=rtpmap:%d vp8/90000", &pt) == 1) {
+					*next = '\n';
+					return pt;
+				}
 			}
 			*next = '\n';
 		}
 		line = next ? (next+1) : NULL;
 	}
-	return -1;
+	return -3;
 }
 
 gboolean janus_is_ip_valid(const char *ip, int *family) {
@@ -261,4 +280,28 @@ gboolean janus_is_ip_valid(const char *ip, int *family) {
 	} else {
 		return FALSE;
 	}
+}
+
+char *janus_address_to_ip(struct sockaddr *address) {
+	if(address == NULL)
+		return NULL;
+	char addr_buf[INET6_ADDRSTRLEN];
+	const char *addr = NULL;
+	struct sockaddr_in *sin = NULL;
+	struct sockaddr_in6 *sin6 = NULL;
+
+	switch(address->sa_family) {
+		case AF_INET:
+			sin = (struct sockaddr_in *)address;
+			addr = inet_ntop(AF_INET, &sin->sin_addr, addr_buf, INET_ADDRSTRLEN);
+			break;
+		case AF_INET6:
+			sin6 = (struct sockaddr_in6 *)address;
+			addr = inet_ntop(AF_INET6, &sin6->sin6_addr, addr_buf, INET6_ADDRSTRLEN);
+			break;
+		default:
+			/* Unknown family */
+			break;
+	}
+	return addr ? g_strdup(addr) : NULL;
 }

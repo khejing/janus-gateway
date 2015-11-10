@@ -121,7 +121,8 @@ int janus_pp_webm_preprocess(FILE *file, janus_pp_frame_packet *list) {
 					max_ts_diff = diff;
 			}
 			if(tmp->prev != NULL && (tmp->seq - tmp->prev->seq > 1)) {
-				JANUS_LOG(LOG_VERB, "Lost a packet here? (got seq %"SCNu16" after %"SCNu16")\n", tmp->seq, tmp->prev->seq); 
+				JANUS_LOG(LOG_WARN, "Lost a packet here? (got seq %"SCNu16" after %"SCNu16", time ~%"SCNu64"s)\n",
+					tmp->seq, tmp->prev->seq, (tmp->ts-list->ts)/90000); 
 			}
 			/* http://tools.ietf.org/html/draft-ietf-payload-vp8-04 */
 			/* Read the first bytes of the payload, and get the first octet (VP8 Payload Descriptor) */
@@ -196,8 +197,8 @@ int janus_pp_webm_preprocess(FILE *file, janus_pp_frame_packet *list) {
 		}
 		tmp = tmp->next;
 	}
-	int mean_ts = (max_ts_diff+min_ts_diff)/2;	// FIXME;
-	fps = (90000/(mean_ts > 0 ? mean_ts : 30));	// FIXME
+	int mean_ts = min_ts_diff;	/* FIXME: was an actual mean, (max_ts_diff+min_ts_diff)/2; */
+	fps = (90000/(mean_ts > 0 ? mean_ts : 30));
 	JANUS_LOG(LOG_INFO, "  -- %dx%d (fps [%d,%d] ~ %d)\n", max_width, max_height, min_ts_diff, max_ts_diff, fps);
 	if(max_width == 0 && max_height == 0) {
 		JANUS_LOG(LOG_WARN, "No key frame?? assuming 640x480...\n");
@@ -217,13 +218,12 @@ int janus_pp_webm_process(FILE *file, janus_pp_frame_packet *list, int *working)
 	janus_pp_frame_packet *tmp = list;
 
 	int bytes = 0, numBytes = max_width*max_height*3;	/* FIXME */
-	uint8_t *received_frame = calloc(numBytes, sizeof(uint8_t));
-	memset(received_frame, 0, numBytes);
-	uint8_t *buffer = calloc(10000, sizeof(uint8_t)), *start = buffer;
-	memset(buffer, 0, 10000);
+	uint8_t *received_frame = g_malloc0(numBytes);
+	uint8_t *buffer = g_malloc0(10000), *start = buffer;
 	int len = 0, frameLen = 0;
 	//~ int vp8gotFirstKey = 0;	/* FIXME Ugly check to wait for the first key frame, before starting decoding */
 	int keyFrame = 0;
+	uint32_t keyframe_ts = 0;
 
 	while(*working && tmp != NULL) {
 		keyFrame = 0;
@@ -309,6 +309,11 @@ int janus_pp_webm_process(FILE *file, janus_pp_frame_packet *list, int *working)
 							int vp8h = swap2(*(unsigned short*)(c+5))&0x3fff;
 							int vp8hs = swap2(*(unsigned short*)(c+5))>>14;
 							JANUS_LOG(LOG_VERB, "(seq=%"SCNu16", ts=%"SCNu64") Key frame: %dx%d (scale=%dx%d)\n", tmp->seq, tmp->ts, vp8w, vp8h, vp8ws, vp8hs);
+							/* Is this the first keyframe we find? */
+							if(keyframe_ts == 0) {
+								keyframe_ts = tmp->ts;
+								JANUS_LOG(LOG_INFO, "First keyframe: %"SCNu64"\n", tmp->ts-list->ts);
+							}
 						}
 					}
 				}
@@ -348,6 +353,8 @@ int janus_pp_webm_process(FILE *file, janus_pp_frame_packet *list, int *working)
 		}
 		tmp = tmp->next;
 	}
+	g_free(received_frame);
+	g_free(start);
 	return 0;
 }
 

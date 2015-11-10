@@ -14,11 +14,17 @@
 
 #include <stdint.h>
 #include <glib.h>
+#include <netinet/in.h>
 
 /*! \brief Helper to retrieve the system monotonic time, as Glib's
  * g_get_monotonic_time may not be available (only since 2.28)
  * @returns The system monotonic time */
 gint64 janus_get_monotonic_time(void);
+
+/*! \brief Helper to retrieve the system real time, as Glib's
+ * g_get_real_time may not be available (only since 2.28)
+ * @returns The system real time */
+gint64 janus_get_real_time(void);
 
 /*! \brief Helper to replace strings
  * @param message The string that contains the text to replace, which may be
@@ -88,4 +94,10 @@ int janus_get_vp8_pt(const char *sdp);
  * @param[in,out] family The address family of the address, set by the method if valid
  * @returns true if the address is valid, false otherwise */
 gboolean janus_is_ip_valid(const char *ip, int *family);
+
+/*! \brief Convert a sockaddr address to an IP string
+ * \note The resulting string is allocated, which means the caller must free it itself when done
+ * @param address The sockaddr address to convert
+ * @returns A string containing the IP address, if successful, NULL otherwise */
+char *janus_address_to_ip(struct sockaddr *address);
 #endif

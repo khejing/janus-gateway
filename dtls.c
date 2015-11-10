@@ -195,7 +195,7 @@ janus_dtls_srtp *janus_dtls_srtp_create(void *ice_component, janus_dtls_role rol
 		JANUS_LOG(LOG_ERR, "No handle/agent, no DTLS...\n");
 		return NULL;
 	}
-	janus_dtls_srtp *dtls = calloc(1, sizeof(janus_dtls_srtp));
+	janus_dtls_srtp *dtls = g_malloc0(sizeof(janus_dtls_srtp));
 	if(dtls == NULL) {
 		JANUS_LOG(LOG_FATAL, "Memory error!\n");
 		return NULL;
@@ -263,6 +263,7 @@ janus_dtls_srtp *janus_dtls_srtp_create(void *ice_component, janus_dtls_role rol
 #endif
 	janus_mutex_init(&dtls->srtp_mutex);
 	/* Done */
+	dtls->dtls_connected = 0;
 	dtls->component = component;
 	return dtls;
 }
@@ -358,7 +359,7 @@ void janus_dtls_srtp_incoming_msg(janus_dtls_srtp *dtls, char *buf, uint16_t len
 			unsigned char rfingerprint[EVP_MAX_MD_SIZE];
 			char remote_fingerprint[160];
 			char *rfp = (char *)&remote_fingerprint;
-			if(handle->remote_hashing && !strcasecmp(handle->remote_hashing, "sha-1")) {
+			if(stream->remote_hashing && !strcasecmp(stream->remote_hashing, "sha-1")) {
 				JANUS_LOG(LOG_VERB, "[%"SCNu64"] Computing sha-1 fingerprint of remote certificate...\n", handle->handle_id);
 				X509_digest(rcert, EVP_sha1(), (unsigned char *)rfingerprint, &rsize);
 			} else {
@@ -374,13 +375,14 @@ void janus_dtls_srtp_incoming_msg(janus_dtls_srtp *dtls, char *buf, uint16_t len
 			}
 			*(rfp-1) = 0;
 			JANUS_LOG(LOG_VERB, "[%"SCNu64"] Remote fingerprint (%s) of the client is %s\n",
-				handle->handle_id, handle->remote_hashing ? handle->remote_hashing : "sha-256", remote_fingerprint);
-			if(!strcasecmp(remote_fingerprint, handle->remote_fingerprint ? handle->remote_fingerprint : "(none)")) {
+				handle->handle_id, stream->remote_hashing ? stream->remote_hashing : "sha-256", remote_fingerprint);
+			if(!strcasecmp(remote_fingerprint, stream->remote_fingerprint ? stream->remote_fingerprint : "(none)")) {
 				JANUS_LOG(LOG_VERB, "[%"SCNu64"]  Fingerprint is a match!\n", handle->handle_id);
 				dtls->dtls_state = JANUS_DTLS_STATE_CONNECTED;
+				dtls->dtls_connected = janus_get_monotonic_time();
 			} else {
 				/* FIXME NOT a match! MITM? */
-				JANUS_LOG(LOG_ERR, "[%"SCNu64"]  Fingerprint is NOT a match! got %s, expected %s\n", handle->handle_id, remote_fingerprint, handle->remote_fingerprint);
+				JANUS_LOG(LOG_ERR, "[%"SCNu64"]  Fingerprint is NOT a match! got %s, expected %s\n", handle->handle_id, remote_fingerprint, stream->remote_fingerprint);
 				dtls->dtls_state = JANUS_DTLS_STATE_FAILED;
 				goto done;
 			}
@@ -560,7 +562,7 @@ void janus_dtls_callback(const SSL *ssl, int where, int ret) {
 		JANUS_LOG(LOG_WARN, "[%"SCNu64"] DTLS alert triggered on stream %"SCNu16", but it's the data channel so we don't care...\n", handle->handle_id, stream->stream_id);
 		return;
 	}
-	JANUS_LOG(LOG_INFO, "[%"SCNu64"] DTLS alert triggered on stream %"SCNu16" (component %"SCNu16"), closing...\n", handle->handle_id, stream->stream_id, component->component_id);
+	JANUS_LOG(LOG_VERB, "[%"SCNu64"] DTLS alert triggered on stream %"SCNu16" (component %"SCNu16"), closing...\n", handle->handle_id, stream->stream_id, component->component_id);
 	janus_flags_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_CLEANING);
 	if(!janus_flags_is_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_ALERT)) {
 		janus_flags_set(&handle->webrtc_flags, JANUS_ICE_HANDLE_WEBRTC_ALERT);
@@ -725,7 +727,7 @@ void *janus_dtls_sctp_setup_thread(void *data) {
 	}
 	janus_sctp_association *sctp = (janus_sctp_association *)dtls->sctp;
 	/* Do the accept/connect stuff now */
-	JANUS_LOG(LOG_INFO, "[%"SCNu64"] Started thread: setup of the SCTP association\n", sctp->handle_id);
+	JANUS_LOG(LOG_VERB, "[%"SCNu64"] Started thread: setup of the SCTP association\n", sctp->handle_id);
 	janus_sctp_association_setup(sctp);
 	g_thread_unref(g_thread_self());
 	return NULL;
