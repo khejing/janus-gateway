@@ -91,7 +91,7 @@ from_janus = from-janus		; Name of the queue for outgoing messages
 [mqtt]
 enable = no					; Whether the support must be enabled
 to_janus = to-janus			; Name of the topic for incoming messages
-;host = localhost			; The address of the MQTT server
+;host = localhost			; The address of the MQTT server (default=localhost)
 ;port = 1883				; The port of the MQTT server (1883 by default)
 
 
