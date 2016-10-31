@@ -500,7 +500,9 @@ gint janus_session_destroy(guint64 session_id) {
 			g_hash_table_iter_remove(&iter);
 		}
 	}
+#ifndef HAVE_MQTT
 	janus_request_source *source = (janus_request_source *)session->source;
+#endif
 #ifdef HAVE_WEBSOCKETS
 	if(source->type == JANUS_SOURCE_WEBSOCKETS) {
 		/* Remove the session from the list of sessions created by this WS client */
