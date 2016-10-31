@@ -419,6 +419,7 @@ void janus_audiobridge_incoming_rtcp(janus_plugin_session *handle, int video, ch
 void janus_audiobridge_hangup_media(janus_plugin_session *handle);
 void janus_audiobridge_destroy_session(janus_plugin_session *handle, int *error);
 char *janus_audiobridge_query_session(janus_plugin_session *handle);
+void janus_audiobridge_destroy_room(janus_audiobridge_room *audiobridge);
 
 /* Plugin setup */
 static janus_plugin janus_audiobridge_plugin =
@@ -946,6 +947,12 @@ void janus_audiobridge_destroy_session(janus_plugin_session *handle, int *error)
 		*error = -2;
 		return;
 	}
+	janus_audiobridge_participant *participant = (janus_audiobridge_participant *)session->participant;
+	guint num = g_hash_table_size(participant->room->participants);
+	if(num == 1 || num == 0){
+		JANUS_LOG(LOG_INFO, "There will be not a participant in the room at all, so destroy the room!\n");
+		janus_audiobridge_destroy_room(participant->room);
+	}
 	JANUS_LOG(LOG_VERB, "Removing AudioBridge session...\n");
 	janus_mutex_lock(&sessions_mutex);
 	if(!session->destroyed) {
@@ -995,6 +1002,17 @@ char *janus_audiobridge_query_session(janus_plugin_session *handle) {
 	char *info_text = json_dumps(info, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
 	json_decref(info);
 	return info_text;
+}
+
+void janus_audiobridge_destroy_room(janus_audiobridge_room *audiobridge){
+	janus_mutex_lock(&rooms_mutex);
+	g_hash_table_remove(rooms, GUINT_TO_POINTER(audiobridge->room_id));
+	janus_mutex_unlock(&rooms_mutex);
+	JANUS_LOG(LOG_VERB, "Waiting for the mixer thread to complete...\n");
+	audiobridge->destroyed = janus_get_monotonic_time();
+	g_thread_join(audiobridge->thread);
+	/* Done */
+	JANUS_LOG(LOG_VERB, "Audiobridge room destroyed\n");
 }
 
 struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_session *handle, char *transaction, char *message, char *sdp_type, char *sdp) {
@@ -1303,8 +1321,8 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 		guint64 room_id = json_integer_value(room);
 		janus_mutex_lock(&rooms_mutex);
 		janus_audiobridge_room *audiobridge = g_hash_table_lookup(rooms, GUINT_TO_POINTER(room_id));
+		janus_mutex_unlock(&rooms_mutex);
 		if(audiobridge == NULL) {
-			janus_mutex_unlock(&rooms_mutex);
 			JANUS_LOG(LOG_ERR, "No such room (%"SCNu64")\n", room_id);
 			error_code = JANUS_AUDIOBRIDGE_ERROR_NO_SUCH_ROOM;
 			g_snprintf(error_cause, 512, "No such room (%"SCNu64")", room_id);
@@ -1314,29 +1332,24 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 			/* A secret is required for this action */
 			json_t *secret = json_object_get(root, "secret");
 			if(!secret) {
-				janus_mutex_unlock(&rooms_mutex);
 				JANUS_LOG(LOG_ERR, "Missing element (secret)\n");
 				error_code = JANUS_AUDIOBRIDGE_ERROR_MISSING_ELEMENT;
 				g_snprintf(error_cause, 512, "Missing element (secret)");
 				goto error;
 			}
 			if(!json_is_string(secret)) {
-				janus_mutex_unlock(&rooms_mutex);
 				JANUS_LOG(LOG_ERR, "Invalid element (secret should be a string)\n");
 				error_code = JANUS_AUDIOBRIDGE_ERROR_INVALID_ELEMENT;
 				g_snprintf(error_cause, 512, "Invalid element (secret should be a string)");
 				goto error;
 			}
 			if(!janus_strcmp_const_time(audiobridge->room_secret, json_string_value(secret))) {
-				janus_mutex_unlock(&rooms_mutex);
 				JANUS_LOG(LOG_ERR, "Unauthorized (wrong secret)\n");
 				error_code = JANUS_AUDIOBRIDGE_ERROR_UNAUTHORIZED;
 				g_snprintf(error_cause, 512, "Unauthorized (wrong secret)");
 				goto error;
 			}
 		}
-		/* Remove room */
-		g_hash_table_remove(rooms, GUINT_TO_POINTER(room_id));
 		/* Prepare response/notification */
 		response = json_object();
 		json_object_set_new(response, "audiobridge", json_string("destroyed"));
@@ -1375,12 +1388,8 @@ struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_sessio
 			}
 		}
 		g_free(response_text);
-		janus_mutex_unlock(&rooms_mutex);
-		JANUS_LOG(LOG_VERB, "Waiting for the mixer thread to complete...\n");
-		audiobridge->destroyed = janus_get_monotonic_time();
-		g_thread_join(audiobridge->thread);
-		/* Done */
-		JANUS_LOG(LOG_VERB, "Audiobridge room destroyed\n");
+		/* Remove room */
+		janus_audiobridge_destroy_room(audiobridge);
 		goto plugin_response;
 	} else if(!strcasecmp(request_text, "list")) {
 		/* List all rooms (but private ones) and their details (except for the secret, of course...) */

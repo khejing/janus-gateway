@@ -7,12 +7,12 @@
  * and implements the transports (HTTP, WebSockets, RabbitMQ) and Janus
  * protocol (a JSON-based protocol implemented) to interact with the web
  * applications. The core also takes care of bridging peers and plugins
- * accordingly. 
- * 
+ * accordingly.
+ *
  * \ingroup core
  * \ref core
  */
- 
+
 #include <dlfcn.h>
 #include <dirent.h>
 #include <net/if.h>
@@ -268,7 +268,7 @@ char *janus_info(const char *transaction) {
 	/* Convert to a string */
 	char *info_text = json_dumps(info, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
 	json_decref(info);
-	
+
 	return info_text;
 }
 
@@ -322,7 +322,7 @@ static janus_callbacks janus_handler_plugin =
 		.relay_data = janus_relay_data,
 		.close_pc = janus_close_pc,
 		.end_session = janus_end_session,
-	}; 
+	};
 ///@}
 
 
@@ -529,19 +529,6 @@ gint janus_session_destroy(guint64 session_id) {
 		}
 	}
 #endif
-#ifdef HAVE_MQTT
-	if(source->type == JANUS_SOURCE_MQTT) {
-		/* Remove the session from the list of sessions created by this MQTT client */
-		janus_mqtt_client *client = (janus_mqtt_client *)source->source;
-		if(client) {
-			janus_mutex_lock(&client->mutex);
-			if(client->sessions)
-				g_hash_table_remove(client->sessions, GUINT_TO_POINTER(session_id));
-			janus_mutex_unlock(&client->mutex);
-			JANUS_LOG(LOG_VERB, "Remove session %"SCNu64" from MQTT client sessions\n", session_id);
-		}
-	}
-#endif
 
 	/* FIXME Actually destroy session */
 	janus_session_free(session);
@@ -652,7 +639,7 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 		return ret;
 	}
 	if (!strcasecmp(method, "OPTIONS")) {
-		response = MHD_create_response_from_data(0, NULL, MHD_NO, MHD_NO); 
+		response = MHD_create_response_from_data(0, NULL, MHD_NO, MHD_NO);
 		MHD_add_response_header(response, "Access-Control-Allow-Origin", "*");
 		if(msg->acrm)
 			MHD_add_response_header(response, "Access-Control-Allow-Methods", msg->acrm);
@@ -772,7 +759,7 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 		.source = (void *)connection,
 		.msg = (void *)msg,
 	};
-	
+
 	/* Is this a generic request for info? */
 	if(session_path != NULL && !strcmp(session_path, "info")) {
 		/* The info REST endpoint, if contacted through a GET, provides information on the gateway */
@@ -784,7 +771,7 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 		ret = janus_process_success(&source, janus_info(NULL));
 		goto done;
 	}
-	
+
 	/* Or maybe a long poll */
 	if(!strcasecmp(method, "GET") || !payload) {
 		guint64 session_id = session_path ? g_ascii_strtoll(session_path, NULL, 10) : 0;
@@ -923,7 +910,7 @@ int janus_ws_handler(void *cls, struct MHD_Connection *connection, const char *u
 		}
 		goto done;
 	}
-	
+
 	/* Parse the JSON payload */
 	json_error_t error;
 	json_t *root = json_loads(payload, 0, &error);
@@ -1005,7 +992,7 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 		goto jsondone;
 	}
 	const gchar *message_text = json_string_value(message);
-	
+
 	if(session_id == 0 && handle_id == 0) {
 		/* Can only be a 'Create new session', a 'Get info' or a 'Ping/Pong' request */
 		if(!strcasecmp(message_text, "info")) {
@@ -1115,19 +1102,6 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 		if(source->type == JANUS_SOURCE_RABBITMQ) {
 			/* Add the new session to the list of sessions created by this RabbitMQ client */
 			janus_rabbitmq_client *client = (janus_rabbitmq_client *)source->source;
-			if(client) {
-				janus_mutex_lock(&client->mutex);
-				if(client->sessions == NULL)
-					client->sessions = g_hash_table_new(NULL, NULL);
-				g_hash_table_insert(client->sessions, GUINT_TO_POINTER(session_id), session);
-				janus_mutex_unlock(&client->mutex);
-			}
-		}
-#endif
-#ifdef HAVE_MQTT
-		if(source->type == JANUS_SOURCE_MQTT) {
-			/* Add the new session to the list of sessions created by this MQTT client */
-			janus_mqtt_client *client = (janus_mqtt_client *)source->source;
 			if(client) {
 				janus_mutex_lock(&client->mutex);
 				if(client->sessions == NULL)
@@ -1811,7 +1785,7 @@ int janus_process_incoming_request(janus_request_source *source, json_t *root) {
 			ret = janus_process_error(source, session_id, transaction_text, JANUS_ERROR_PLUGIN_MESSAGE, "%s", result->content ? g_strdup(result->content) : "Plugin returned a severe (unknown) error");
 			janus_plugin_result_destroy(result);
 			goto jsondone;
-		}			
+		}
 		janus_plugin_result_destroy(result);
 	} else if(!strcasecmp(message_text, "trickle")) {
 		if(handle == NULL) {
@@ -1914,7 +1888,7 @@ trickledone:
 
 jsondone:
 	json_decref(root);
-	
+
 	return ret;
 }
 
@@ -1964,7 +1938,7 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 		return ret;
 	}
 	if (!strcasecmp(method, "OPTIONS")) {
-		response = MHD_create_response_from_data(0, NULL, MHD_NO, MHD_NO); 
+		response = MHD_create_response_from_data(0, NULL, MHD_NO, MHD_NO);
 		MHD_add_response_header(response, "Access-Control-Allow-Origin", "*");
 		if(msg->acrm)
 			MHD_add_response_header(response, "Access-Control-Allow-Methods", msg->acrm);
@@ -2084,7 +2058,7 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 		.source = (void *)connection,
 		.msg = (void *)msg,
 	};
-	
+
 	/* Is this a generic request for info? */
 	if(session_path != NULL && !strcmp(session_path, "info")) {
 		/* The info REST endpoint, if contacted through a GET, provides information on the gateway */
@@ -2096,13 +2070,13 @@ int janus_admin_ws_handler(void *cls, struct MHD_Connection *connection, const c
 		ret = janus_process_success(&source, janus_info(NULL));
 		goto done;
 	}
-	
+
 	/* Without a payload we don't know what to do */
 	if(!payload) {
 		ret = janus_process_error(&source, 0, NULL, JANUS_ERROR_INVALID_JSON, "Request payload missing");
 		goto done;
 	}
-	
+
 	/* Parse the JSON payload */
 	json_error_t error;
 	json_t *root = json_loads(payload, 0, &error);
@@ -2168,7 +2142,7 @@ int janus_process_incoming_admin_request(janus_request_source *source, json_t *r
 		goto jsondone;
 	}
 	const gchar *message_text = json_string_value(message);
-	
+
 	if(session_id == 0 && handle_id == 0) {
 		/* Can only be a 'Get all sessions' or some general setting manipulation request */
 		if(!strcasecmp(message_text, "info")) {
@@ -2950,7 +2924,7 @@ int janus_process_incoming_admin_request(janus_request_source *source, json_t *r
 
 jsondone:
 	json_decref(root);
-	
+
 	return ret;
 }
 
@@ -2984,7 +2958,7 @@ void janus_ws_request_completed(void *cls, struct MHD_Connection *connection, vo
 	if(request->acrm != NULL)
 		g_free(request->acrm);
 	g_free(request);
-	*con_cls = NULL;   
+	*con_cls = NULL;
 }
 
 /* Worker to handle notifications */
@@ -4554,7 +4528,7 @@ json_t *janus_handle_sdp(janus_plugin_session *plugin_session, janus_plugin *plu
 			janus_mutex_unlock(&ice_handle->mutex);
 		}
 	}
-	
+
 	/* Prepare JSON event */
 	json_t *jsep = json_object();
 	json_object_set_new(jsep, "type", json_string(sdp_type));
@@ -4612,7 +4586,7 @@ void janus_close_pc(janus_plugin_session *plugin_session) {
 	janus_session *session = (janus_session *)ice_handle->session;
 	if(!session)
 		return;
-		
+
 	JANUS_LOG(LOG_VERB, "[%"SCNu64"] Plugin asked to hangup PeerConnection: sending alert\n", ice_handle->handle_id);
 	/* Send an alert on all the DTLS connections */
 	janus_ice_webrtc_hangup(ice_handle);
@@ -4695,11 +4669,11 @@ gint main(int argc, char *argv[])
 	/* Let's call our cmdline parser */
 	if(cmdline_parser(argc, argv, &args_info) != 0)
 		exit(1);
-	
+
 	JANUS_PRINT("---------------------------------------------------\n");
 	JANUS_PRINT("  Starting Meetecho Janus (WebRTC Gateway) v%s\n", JANUS_VERSION_STRING);
 	JANUS_PRINT("---------------------------------------------------\n\n");
-	
+
 	/* Handle SIGINT (CTRL-C), SIGTERM (from service managers) */
 	signal(SIGINT, janus_handle_signal);
 	signal(SIGTERM, janus_handle_signal);
@@ -4708,7 +4682,7 @@ gint main(int argc, char *argv[])
 #if !GLIB_CHECK_VERSION(2, 36, 0)
 	g_type_init();
 #endif
-	
+
 	/* Logging level: default is info and no timestamps */
 	janus_log_level = LOG_INFO;
 	janus_log_timestamps = FALSE;
@@ -5478,7 +5452,7 @@ gint main(int argc, char *argv[])
 		JANUS_LOG(LOG_INFO, "HTTP webserver started (port %d, %s path listener)...\n", wsport, ws_path);
 	}
 	/* Do we also have to provide an HTTPS one? */
-	char *cert_pem_bytes = NULL, *cert_key_bytes = NULL; 
+	char *cert_pem_bytes = NULL, *cert_key_bytes = NULL;
 	item = janus_config_get_item_drilldown(config, "webserver", "https");
 	if(!item || !item->value || !janus_is_true(item->value)) {
 		JANUS_LOG(LOG_WARN, "HTTPS webserver disabled\n");
@@ -5822,7 +5796,6 @@ gint main(int argc, char *argv[])
 			JANUS_LOG(LOG_FATAL, "Memory error!\n");
 			exit(1);	/* FIXME Should we really give up? */
 		}
-		mqtt_client->sessions = NULL;
 		mqtt_client->destroy = 0;
 		/* org.eclipse.paho.mqtt.c receiver is single threaded, we need a thread pool to serve requests */
 		GError *error = NULL;
@@ -5854,7 +5827,7 @@ gint main(int argc, char *argv[])
 		something++;
 #endif
 	if(something == 0) {
-		JANUS_LOG(LOG_FATAL, "No transport (HTTP/HTTPS/WebSockets/RabbitMQ) started, giving up...\n"); 
+		JANUS_LOG(LOG_FATAL, "No transport (HTTP/HTTPS/WebSockets/RabbitMQ) started, giving up...\n");
 		exit(1);
 	}
 
@@ -6125,7 +6098,7 @@ gint main(int argc, char *argv[])
 #endif
 	janus_ice_deinit();
 	janus_auth_deinit();
-	
+
 	JANUS_LOG(LOG_INFO, "Closing plugins:\n");
 	if(plugins != NULL) {
 		g_hash_table_foreach(plugins, janus_plugin_close, NULL);
