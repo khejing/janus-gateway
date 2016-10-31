@@ -419,7 +419,6 @@ void janus_audiobridge_incoming_rtcp(janus_plugin_session *handle, int video, ch
 void janus_audiobridge_hangup_media(janus_plugin_session *handle);
 void janus_audiobridge_destroy_session(janus_plugin_session *handle, int *error);
 char *janus_audiobridge_query_session(janus_plugin_session *handle);
-void janus_audiobridge_destroy_room(janus_audiobridge_room *audiobridge);
 
 /* Plugin setup */
 static janus_plugin janus_audiobridge_plugin =
@@ -642,6 +641,16 @@ typedef struct wav_header {
 #define JANUS_AUDIOBRIDGE_ERROR_ID_EXISTS		490
 #define JANUS_AUDIOBRIDGE_ERROR_ALREADY_JOINED	491
 
+static void janus_audiobridge_destroy_room(janus_audiobridge_room *audiobridge){
+	janus_mutex_lock(&rooms_mutex);
+	g_hash_table_remove(rooms, GUINT_TO_POINTER(audiobridge->room_id));
+	janus_mutex_unlock(&rooms_mutex);
+	JANUS_LOG(LOG_VERB, "Waiting for the mixer thread to complete...\n");
+	audiobridge->destroyed = janus_get_monotonic_time();
+	g_thread_join(audiobridge->thread);
+	/* Done */
+	JANUS_LOG(LOG_VERB, "Audiobridge room destroyed\n");
+}
 
 /* AudioBridge watchdog/garbage collector (sort of) */
 void *janus_audiobridge_watchdog(void *data);
@@ -1002,17 +1011,6 @@ char *janus_audiobridge_query_session(janus_plugin_session *handle) {
 	char *info_text = json_dumps(info, JSON_INDENT(3) | JSON_PRESERVE_ORDER);
 	json_decref(info);
 	return info_text;
-}
-
-void janus_audiobridge_destroy_room(janus_audiobridge_room *audiobridge){
-	janus_mutex_lock(&rooms_mutex);
-	g_hash_table_remove(rooms, GUINT_TO_POINTER(audiobridge->room_id));
-	janus_mutex_unlock(&rooms_mutex);
-	JANUS_LOG(LOG_VERB, "Waiting for the mixer thread to complete...\n");
-	audiobridge->destroyed = janus_get_monotonic_time();
-	g_thread_join(audiobridge->thread);
-	/* Done */
-	JANUS_LOG(LOG_VERB, "Audiobridge room destroyed\n");
 }
 
 struct janus_plugin_result *janus_audiobridge_handle_message(janus_plugin_session *handle, char *transaction, char *message, char *sdp_type, char *sdp) {
