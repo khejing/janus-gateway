@@ -956,12 +956,6 @@ void janus_audiobridge_destroy_session(janus_plugin_session *handle, int *error)
 		*error = -2;
 		return;
 	}
-	janus_audiobridge_participant *participant = (janus_audiobridge_participant *)session->participant;
-	guint num = g_hash_table_size(participant->room->participants);
-	if(num == 1 || num == 0){
-		JANUS_LOG(LOG_INFO, "There will be not a participant in the room at all, so destroy the room!\n");
-		janus_audiobridge_destroy_room(participant->room);
-	}
 	JANUS_LOG(LOG_VERB, "Removing AudioBridge session...\n");
 	janus_mutex_lock(&sessions_mutex);
 	if(!session->destroyed) {
@@ -972,6 +966,12 @@ void janus_audiobridge_destroy_session(janus_plugin_session *handle, int *error)
 		old_sessions = g_list_append(old_sessions, session);
 	}
 	janus_mutex_unlock(&sessions_mutex);
+	/* janus_audiobridge_hangup_media uses room info, so destroying room should be after janus_audiobridge_hangup_media */
+	janus_audiobridge_participant *participant = (janus_audiobridge_participant *)session->participant;
+	if(g_hash_table_size(participant->room->participants) == 0){
+		JANUS_LOG(LOG_INFO, "There will be not a participant in the room at all, so destroy the room!\n");
+		janus_audiobridge_destroy_room(participant->room);
+	}
 
 	return;
 }
