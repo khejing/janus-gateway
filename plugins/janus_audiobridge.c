@@ -968,7 +968,7 @@ void janus_audiobridge_destroy_session(janus_plugin_session *handle, int *error)
 	janus_mutex_unlock(&sessions_mutex);
 	/* janus_audiobridge_hangup_media uses room info, so destroying room should be after janus_audiobridge_hangup_media */
 	janus_audiobridge_participant *participant = (janus_audiobridge_participant *)session->participant;
-	if(g_hash_table_size(participant->room->participants) == 0){
+	if(participant->room && g_hash_table_size(participant->room->participants) == 0){
 		JANUS_LOG(LOG_INFO, "There will be not a participant in the room at all, so destroy the room!\n");
 		janus_audiobridge_destroy_room(participant->room);
 	}
